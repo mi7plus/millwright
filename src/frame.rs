@@ -126,6 +126,23 @@ impl Frame {
         (0..self.nrows).map(|r| self.row(r).to_vec()).collect()
     }
 
+    /// A new frame holding only the given rows, in the given order.
+    ///
+    /// Used to materialize CV folds and bootstrap samples. Row indices are
+    /// assumed in-range.
+    pub fn select_rows(&self, idx: &[usize]) -> Frame {
+        let mut buf = Vec::with_capacity(idx.len() * self.ncols);
+        for &r in idx {
+            buf.extend_from_slice(self.row(r));
+        }
+        Frame {
+            buf,
+            nrows: idx.len(),
+            ncols: self.ncols,
+            columns: self.columns.clone(),
+        }
+    }
+
     /// Assert that another frame has the same columns (used when a fitted step
     /// is applied to new data).
     pub(crate) fn require_columns(&self, expected: &[String]) -> Result<()> {
@@ -175,6 +192,15 @@ impl Dataset {
         Dataset {
             features,
             target: self.target.clone(),
+        }
+    }
+
+    /// A new dataset holding only the given rows, in the given order — a CV
+    /// fold or a bootstrap sample.
+    pub fn select(&self, idx: &[usize]) -> Dataset {
+        Dataset {
+            features: self.features.select_rows(idx),
+            target: idx.iter().map(|&i| self.target[i]).collect(),
         }
     }
 }

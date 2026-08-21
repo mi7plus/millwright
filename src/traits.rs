@@ -23,6 +23,32 @@ pub enum ParamValue {
     Bool(bool),
 }
 
+impl From<i64> for ParamValue {
+    fn from(v: i64) -> Self {
+        ParamValue::Int(v)
+    }
+}
+impl From<i32> for ParamValue {
+    fn from(v: i32) -> Self {
+        ParamValue::Int(v as i64)
+    }
+}
+impl From<usize> for ParamValue {
+    fn from(v: usize) -> Self {
+        ParamValue::Int(v as i64)
+    }
+}
+impl From<f64> for ParamValue {
+    fn from(v: f64) -> Self {
+        ParamValue::Float(v)
+    }
+}
+impl From<bool> for ParamValue {
+    fn from(v: bool) -> Self {
+        ParamValue::Bool(v)
+    }
+}
+
 impl ParamValue {
     /// Interpret as an integer, accepting an integral float.
     pub fn as_i64(&self) -> Result<i64> {
@@ -55,7 +81,10 @@ impl ParamValue {
 ///
 /// A transformer is fitted in place with `&mut self`, which keeps the trait
 /// object-safe so pipelines can own `Box<dyn Transformer>` steps.
-pub trait Transformer {
+///
+/// The [`TransformerClone`] supertrait lets a boxed transformer be cloned, so a
+/// search can re-fit a fresh copy of a pipeline on every CV fold.
+pub trait Transformer: TransformerClone {
     /// A short, stable name for diagnostics.
     fn name(&self) -> &'static str;
 
@@ -77,6 +106,27 @@ pub trait Transformer {
             "{} has no parameter '{name}'",
             self.name()
         )))
+    }
+}
+
+/// Clone support for boxed transformers (the object-safe half of `Clone`).
+pub trait TransformerClone {
+    /// Clone `self` into a fresh box.
+    fn clone_box(&self) -> Box<dyn Transformer>;
+}
+
+impl<T> TransformerClone for T
+where
+    T: Transformer + Clone + 'static,
+{
+    fn clone_box(&self) -> Box<dyn Transformer> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn Transformer> {
+    fn clone(&self) -> Self {
+        self.clone_box()
     }
 }
 
@@ -112,7 +162,63 @@ pub trait ProbaPredictor: Predictor {
 
 /// A fittable, predicting model — the shape a pipeline's final step must have.
 ///
-/// Blanket-implemented for anything that is both an [`Estimator`] and a
-/// [`Predictor`], so backends never implement it directly.
-pub trait Model: Estimator + Predictor {}
-impl<T: Estimator + Predictor> Model for T {}
+/// Blanket-implemented for anything that is an [`Estimator`], a [`Predictor`],
+/// and `Clone`, so backends never implement it directly. The `Clone` bound (via
+/// [`ModelClone`]) lets a search re-fit fresh copies across CV folds and lets
+/// bagging/stacking clone their base estimators.
+pub trait Model: Estimator + Predictor + ModelClone {}
+impl<T: Estimator + Predictor + Clone + 'static> Model for T {}
+
+/// Clone support for boxed models (the object-safe half of `Clone`).
+pub trait ModelClone {
+    /// Clone `self` into a fresh box.
+    fn clone_box(&self) -> Box<dyn Model>;
+}
+
+impl<T> ModelClone for T
+where
+    T: Model + Clone + 'static,
+{
+    fn clone_box(&self) -> Box<dyn Model> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn Model> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+/// A train-time resampler: given features and a target, produce a rebalanced
+/// `(Frame, target)`. Unlike a [`Transformer`], a balancer runs **only during
+/// `fit`** — never at predict time — because it changes the row set (e.g. SMOTE
+/// synthesises minority-class rows).
+pub trait Balancer: BalancerClone {
+    /// A short, stable name for diagnostics.
+    fn name(&self) -> &'static str;
+
+    /// Resample `(features, target)` into a rebalanced pair.
+    fn fit_resample(&self, features: &Frame, target: &[f64]) -> Result<(Frame, Vec<f64>)>;
+}
+
+/// Clone support for boxed balancers.
+pub trait BalancerClone {
+    /// Clone `self` into a fresh box.
+    fn clone_box(&self) -> Box<dyn Balancer>;
+}
+
+impl<T> BalancerClone for T
+where
+    T: Balancer + Clone + 'static,
+{
+    fn clone_box(&self) -> Box<dyn Balancer> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn Balancer> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}

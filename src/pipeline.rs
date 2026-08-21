@@ -12,12 +12,13 @@
 
 use crate::error::{Error, Result};
 use crate::frame::{Dataset, Frame};
-use crate::traits::{Estimator, Model, ParamValue, Predictor, Transformer};
+use crate::traits::{Balancer, Estimator, Model, ParamValue, Predictor, Transformer};
 
 /// A preprocessing-plus-model pipeline.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Pipeline {
     steps: Vec<(String, Box<dyn Transformer>)>,
+    balancer: Option<Box<dyn Balancer>>,
     estimator: Option<(String, Box<dyn Model>)>,
     fitted: bool,
 }
@@ -27,6 +28,7 @@ impl Pipeline {
     pub fn new() -> Self {
         Pipeline {
             steps: Vec::new(),
+            balancer: None,
             estimator: None,
             fitted: false,
         }
@@ -35,6 +37,13 @@ impl Pipeline {
     /// Append a named transformer step. Builder-style; chainable.
     pub fn step(mut self, name: impl Into<String>, t: impl Transformer + 'static) -> Self {
         self.steps.push((name.into(), Box::new(t)));
+        self
+    }
+
+    /// Set a train-time [`Balancer`] (e.g. SMOTE), applied after the transforms
+    /// during `fit` and skipped entirely at predict time. Builder-style.
+    pub fn balance(mut self, b: impl Balancer + 'static) -> Self {
+        self.balancer = Some(Box::new(b));
         self
     }
 
@@ -102,7 +111,14 @@ impl Estimator for Pipeline {
         for (_, t) in &mut self.steps {
             current = t.fit_transform(&current)?;
         }
-        let transformed = dataset.with_features(current);
+        // Train-time resampling (SMOTE, etc.) runs here — never at predict time.
+        let transformed = match &self.balancer {
+            Some(b) => {
+                let (bx, by) = b.fit_resample(&current, dataset.target())?;
+                Dataset::new(bx, by)?
+            }
+            None => dataset.with_features(current),
+        };
         let (_, est) = self.estimator.as_mut().expect("checked above");
         est.fit(&transformed)?;
         self.fitted = true;
@@ -134,7 +150,7 @@ mod tests {
 
     /// A trivial estimator that predicts the mean of the training target,
     /// letting us test pipeline plumbing without a backend.
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     struct MeanBaseline {
         mean: f64,
     }

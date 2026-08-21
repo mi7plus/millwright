@@ -5,48 +5,69 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
 See [`Millwright.html`](Millwright.html) / [`millwright-design-brief.pdf`](millwright-design-brief.pdf)
 for the full design brief.
 
-## Status: Phase 0 · the spine
+## Status: Phase 0 (spine) + Phase 1 (prep & select) — done
 
-The smallest thing that proves the design — `fit · transform · predict · Pipeline`
-working end to end over a real backend. Shipped:
+### Phase 0 · the spine
 
-- **`Frame` / `Dataset`** — the contiguous, row-major `f64` boundary type the
-  public API speaks (`src/frame.rs`).
+`fit · transform · predict · Pipeline` end to end over a real backend:
+
+- **`Frame` / `Dataset`** — the contiguous, row-major `f64` boundary type
+  (`src/frame.rs`).
 - **The four traits** — object-safe `Transformer`, `Estimator`, `Predictor`,
   `ProbaPredictor`, plus a blanket `Model` (`src/traits.rs`).
 - **The first backend** — a smartcore adapter (`RandomForest`,
-  `LinearRegression`) that converts `Frame → DenseMatrix` at the edge only
+  `LinearRegression`) converting `Frame → DenseMatrix` at the edge only
   (`src/backends/smartcore.rs`).
-- **`Pipeline`** — named transformer steps + a final model, with `"step__param"`
-  path addressing; pipelines nest (`src/pipeline.rs`).
+- **`Pipeline`** — named steps + a final model, `"step__param"` addressing;
+  pipelines nest (`src/pipeline.rs`).
 
-One core transformer, `StandardScaler`, ships now to exercise `transform`; the
-full preprocessing suite is Phase 1.
+### Phase 1 · prep & select — *a real, tunable, ensemble-ready workflow*
+
+- **Preprocessing** (`src/transform.rs`, core): `SimpleImputer`, `StandardScaler`,
+  `MinMaxScaler`, `OneHotEncoder`.
+- **Balancing** (`src/balance.rs`, via [`imbalance-rs`]): `Smote`,
+  `RandomOverSampler` as train-time `Balancer`s — `Pipeline::balance(...)`,
+  applied only during `fit`.
+- **Model selection** (`src/selection.rs`, via [`model-selection-rs`]):
+  `KFold` / `StratifiedKFold`, a `Metric` enum (accuracy, F1, MAE, MSE, RMSE, R²),
+  and `GridSearch` / `RandomSearch` over a whole pipeline, tuned by path. `grid!`
+  macro included.
+- **Ensembles** (`src/ensemble.rs`, core): `Voting` (hard/soft), `Bagging`, and
+  leak-free `Stacking` riding the same CV engine — all `Model`s themselves, so
+  they compose, tune, and nest.
+
+[`imbalance-rs`]: https://crates.io/crates/imbalance-rs
+[`model-selection-rs`]: https://crates.io/crates/model-selection-rs
 
 ### Quickstart
 
 ```rust
+use millwright::grid;
 use millwright::prelude::*;
 
-let x = Frame::from_rows(
-    vec![vec![0.0, 0.1], vec![9.0, 9.1]],
-    vec!["a".into(), "b".into()],
-)?;
-let train = Dataset::new(x.clone(), vec![0.0, 1.0])?;
-
-let mut pipe = Pipeline::new()
+let pipe = Pipeline::new()
+    .step("impute", SimpleImputer::median())
     .step("scale", StandardScaler::new())
+    .balance(Smote::new())                 // train-time only
     .estimator("rf", RandomForest::new());
 
-pipe.set_param("rf__n_trees", ParamValue::Int(50))?;
-pipe.fit(&train)?;
-let preds = pipe.predict(&x)?;
+let search = GridSearch::new(pipe, grid! { "rf__max_depth" => [4, 8, 16] })
+    .cv(StratifiedKFold::new(5))
+    .scoring(Metric::F1)
+    .fit(&train)?;
+
+println!("best F1 = {:.3}", search.best_score());
+let preds = search.predict(&test)?;
 ```
 
-Run the end-to-end example:
+Run the end-to-end examples:
 
 ```bash
 cargo run --example spine
+```
+
+```bash
+cargo run --example workflow
 ```
 
 ### Building on Windows
@@ -58,6 +79,7 @@ first, so the MSVC linker is found before the shadowing one.
 
 ## Roadmap
 
-Phase 0 (spine) is done. Phases 1–8 — preprocessing & CV, more backends & HPO,
-diagnostics & explainability, ONNX & Python, serving & monitoring, time series &
-out-of-core, AutoML, and 1.0 hardening — are laid out in the design brief.
+Phases 0 (spine) and 1 (prep & select) are done. Phases 2–8 — more backends &
+Bayesian HPO, diagnostics & explainability, ONNX & Python, serving & monitoring,
+time series & out-of-core, AutoML, and 1.0 hardening — are laid out in the design
+brief.

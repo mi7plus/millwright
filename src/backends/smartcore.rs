@@ -8,6 +8,8 @@
 //! - [`RandomForest`] — the classifier from the design brief's API example.
 //! - [`LinearRegression`] — the regression path.
 
+use std::sync::Arc;
+
 use smartcore::ensemble::random_forest_classifier::{
     RandomForestClassifier, RandomForestClassifierParameters,
 };
@@ -19,6 +21,10 @@ use smartcore::linear::linear_regression::{
 use crate::error::{Error, Result};
 use crate::frame::{Dataset, Frame};
 use crate::traits::{Estimator, ParamValue, Predictor};
+
+// The concrete smartcore model types, spelled once.
+type ScForest = RandomForestClassifier<f64, i64, DenseMatrix<f64>, Vec<i64>>;
+type ScLinReg = ScLinearRegression<f64, f64, DenseMatrix<f64>, Vec<f64>>;
 
 /// Convert a [`Frame`] to smartcore's native `DenseMatrix<f64>`.
 ///
@@ -32,10 +38,13 @@ pub fn as_dense(frame: &Frame) -> Result<DenseMatrix<f64>> {
 ///
 /// Class labels are the (integral) values of the [`Dataset`] target, cast to
 /// integers for smartcore and back to `f64` on predict.
+#[derive(Clone)]
 pub struct RandomForest {
     n_trees: u16,
     max_depth: Option<u16>,
-    model: Option<RandomForestClassifier<f64, i64, DenseMatrix<f64>, Vec<i64>>>,
+    // Arc so the wrapper is cheaply Clone (the fitted model is immutable and
+    // smartcore's own type is not Clone); a re-fit replaces the Arc.
+    model: Option<Arc<ScForest>>,
 }
 
 impl RandomForest {
@@ -83,7 +92,7 @@ impl Estimator for RandomForest {
 
         let model = RandomForestClassifier::fit(&x, &y, params)
             .map_err(|e| Error::Backend(format!("RandomForest fit failed: {e}")))?;
-        self.model = Some(model);
+        self.model = Some(Arc::new(model));
         Ok(())
     }
 
@@ -116,8 +125,9 @@ impl Predictor for RandomForest {
 }
 
 /// Ordinary least squares, backed by smartcore.
+#[derive(Clone)]
 pub struct LinearRegression {
-    model: Option<ScLinearRegression<f64, f64, DenseMatrix<f64>, Vec<f64>>>,
+    model: Option<Arc<ScLinReg>>,
 }
 
 impl LinearRegression {
@@ -142,7 +152,7 @@ impl Estimator for LinearRegression {
         let y: Vec<f64> = dataset.target().to_vec();
         let model = ScLinearRegression::fit(&x, &y, LinearRegressionParameters::default())
             .map_err(|e| Error::Backend(format!("LinearRegression fit failed: {e}")))?;
-        self.model = Some(model);
+        self.model = Some(Arc::new(model));
         Ok(())
     }
 }

@@ -12,15 +12,34 @@ categories = ["science", "algorithms"]
 
 [dependencies]
 smartcore = { version = "0.6", optional = true }
+ndarray = { version = "0.16", optional = true }
+imbalance-rs = { version = "0.5", optional = true }
+model-selection-rs = { version = "0.1", optional = true, features = ["smartcore-metrics"] }
 
 [features]
 # Phase 0 · THE SPINE — the smartcore backend is the first (and default) engine.
-default = ["smartcore-backend"]
+# Phase 1 · PREP & SELECT — preprocessing, model-selection, and ensembles.
+default = ["smartcore-backend", "preprocessing", "model-selection", "ensemble"]
+
 smartcore-backend = ["dep:smartcore"]
 
-# `full` grows as later phases land; for now it mirrors the spine.
-full = ["smartcore-backend"]
+# SMOTE and friends come from imbalance-rs as train-time `Balancer`s. Core
+# transformers (impute / scale / encode) have no extra deps and are always on.
+preprocessing = ["dep:imbalance-rs", "dep:ndarray"]
+
+# Cross-validation splitters, scoring, and grid/random search over a pipeline.
+model-selection = ["dep:model-selection-rs", "dep:ndarray"]
+
+# Voting / bagging / stacking meta-estimators, composed over the four traits.
+# Leak-free stacking uses the model-selection CV engine when it is enabled.
+ensemble = []
+
+full = ["smartcore-backend", "preprocessing", "model-selection", "ensemble"]
 
 [[example]]
 name = "spine"
 required-features = ["smartcore-backend"]
+
+[[example]]
+name = "workflow"
+required-features = ["smartcore-backend", "preprocessing", "model-selection", "ensemble"]

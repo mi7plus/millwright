@@ -45,16 +45,44 @@ pub mod pipeline;
 pub mod traits;
 pub mod transform;
 
+#[cfg(feature = "preprocessing")]
+pub mod balance;
+#[cfg(feature = "ensemble")]
+pub mod ensemble;
+#[cfg(feature = "model-selection")]
+pub mod selection;
+
+#[cfg(any(feature = "model-selection", feature = "ensemble"))]
+mod rng;
+
 pub use error::{Error, Result};
 
-/// The one import that brings the whole spine into scope.
+/// The one import that brings the whole framework into scope.
 pub mod prelude {
     pub use crate::error::{Error, Result};
     pub use crate::frame::{Dataset, Frame};
     pub use crate::pipeline::Pipeline;
-    pub use crate::traits::{Estimator, Model, ParamValue, Predictor, ProbaPredictor, Transformer};
-    pub use crate::transform::StandardScaler;
+    pub use crate::traits::{
+        Balancer, Estimator, Model, ParamValue, Predictor, ProbaPredictor, Transformer,
+    };
+    pub use crate::transform::{
+        ImputeStrategy, MinMaxScaler, OneHotEncoder, SimpleImputer, StandardScaler,
+    };
 
     #[cfg(feature = "smartcore-backend")]
     pub use crate::backends::smartcore::{LinearRegression, RandomForest};
+
+    #[cfg(feature = "preprocessing")]
+    pub use crate::balance::{RandomOverSampler, Smote};
+
+    #[cfg(feature = "model-selection")]
+    pub use crate::selection::{
+        CrossValidator, GridSearch, KFold, Metric, ParamGrid, RandomSearch, SearchResult,
+        StratifiedKFold,
+    };
+
+    #[cfg(feature = "ensemble")]
+    pub use crate::ensemble::{Bagging, Voting, VotingKind};
+    #[cfg(all(feature = "ensemble", feature = "model-selection"))]
+    pub use crate::ensemble::Stacking;
 }
