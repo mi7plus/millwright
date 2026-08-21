@@ -64,6 +64,9 @@ pub mod viz;
 #[cfg(any(feature = "model-selection", feature = "ensemble", feature = "explain"))]
 mod rng;
 
+#[cfg(feature = "python")]
+mod python;
+
 pub use error::{Error, Result};
 
 /// The one import that brings the whole framework into scope.

@@ -110,6 +110,11 @@ impl Transformer for StandardScaler {
         }
         Ok(())
     }
+
+    fn as_affine(&self) -> Option<(Vec<f64>, Vec<f64>)> {
+        // transform(x) = (x - mean) / std
+        self.fitted.then(|| (self.means.clone(), self.stds.clone()))
+    }
 }
 
 /// Scale each column into `[0, 1]`: `(x - min) / (max - min)`.
@@ -169,6 +174,11 @@ impl Transformer for MinMaxScaler {
             }
         }
         Frame::new(buf, n, p, self.columns.clone())
+    }
+
+    fn as_affine(&self) -> Option<(Vec<f64>, Vec<f64>)> {
+        // transform(x) = (x - min) / range
+        self.fitted.then(|| (self.mins.clone(), self.ranges.clone()))
     }
 }
 

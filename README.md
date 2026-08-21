@@ -2,10 +2,10 @@
 
 A unified ML framework for Rust — *ten crates, one lifecycle.*
 
-See [`Millwright.html`](index.html) / [`millwright-design-brief.pdf`](millwright-design-brief.pdf)
-for the full design brief.
+The full design brief and guide live at **<https://millwright-rs.dev/>**
+(also [`millwright-design-brief.pdf`](millwright-design-brief.pdf)).
 
-## Status: Phases 0–3 — done
+## Status: Phases 0–4 — done
 
 ### Phase 0 · the spine
 
@@ -65,9 +65,40 @@ for the full design brief.
 [`model-selection-rs`]: https://crates.io/crates/model-selection-rs
 [`linfa`]: https://crates.io/crates/linfa
 [`hyperopt-rs`]: https://crates.io/crates/hyperopt-rs
+### Phase 4 · portability & Python — *train once; run in Rust, Python, or any ONNX runtime*
+
+- **ONNX export** (`src/onnx.rs`, via [`onnx-export-rs`], feature `onnx`):
+  `model.export_onnx(path)` for `RandomForest` (ONNX-ML tree ensemble) and
+  `LinearRegression`; **whole-pipeline export** folds affine scalers into the
+  estimator's graph as one `.onnx`.
+- **Inference** (via [`tract`], feature `onnx`): `InferenceModel::load(path)`
+  loads and runs any ONNX file. tract executes the linear/affine/pipeline graphs
+  (a full round-trip); tree-ensemble ONNX-ML artifacts run in external runtimes
+  like onnxruntime.
+- **Python bindings** (`src/python.rs`, via [`pyo3`], feature `python`): a
+  `Pipeline` class over the same Rust core, built with maturin into an abi3 wheel.
+
+```python
+import millwright as mw
+pipe = mw.Pipeline()
+pipe.standard_scaler()
+pipe.random_forest(n_trees=100, max_depth=8)
+pipe.fit(rows, labels)          # list[list[float]], list[float]
+preds = pipe.predict(rows)      # runs the Rust engine
+```
+
+Build the Python module (from a virtualenv):
+
+```bash
+maturin develop --features python
+```
+
 [`regression-diagnostics`]: https://crates.io/crates/regression-diagnostics
 [`shap-rs`]: https://crates.io/crates/shap-rs
 [`plotters-statistical`]: https://crates.io/crates/plotters-statistical
+[`onnx-export-rs`]: https://crates.io/crates/onnx-export-rs
+[`tract`]: https://crates.io/crates/tract-onnx
+[`pyo3`]: https://pyo3.rs/
 
 ### Quickstart
 
@@ -108,6 +139,10 @@ cargo run --example backends --features "smartcore-backend linfa-backend hpo"
 cargo run --example insight --features "smartcore-backend diagnostics explain viz"
 ```
 
+```bash
+cargo run --example portability --features "smartcore-backend onnx"
+```
+
 ### Building on Windows
 
 The default toolchain is MSVC. If a Unix `link.exe` (e.g. from Git/Laragon) is
@@ -117,6 +152,5 @@ first, so the MSVC linker is found before the shadowing one.
 
 ## Roadmap
 
-Phases 0–3 are done. Phases 4–8 — ONNX & Python, serving & monitoring, time
-series & out-of-core, AutoML, and 1.0 hardening — are laid out in the design
-brief.
+Phases 0–4 are done. Phases 5–8 — serving & monitoring, time series &
+out-of-core, AutoML, and 1.0 hardening — are laid out in the design brief.

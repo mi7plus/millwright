@@ -5,13 +5,19 @@ edition = "2021"
 rust-version = "1.80"
 description = "A unified ML framework for Rust — ten crates, one lifecycle."
 license = "MIT"
-repository = "https://github.com/GeorgeOlteanu/millwright"
+homepage = "https://millwright-rs.dev/"
+repository = "https://github.com/mi7plus/millwright"
 readme = "README.md"
 keywords = ["machine-learning", "ml", "pipeline", "sklearn", "smartcore"]
 categories = ["science", "algorithms"]
 
+[lib]
+# `cdylib` for the Python extension module (maturin); `rlib` for Rust consumers.
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 smartcore = { version = "0.6", optional = true }
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py39"], optional = true }
 ndarray = { version = "0.16", optional = true }
 imbalance-rs = { version = "0.5", optional = true }
 model-selection-rs = { version = "0.1", optional = true, features = ["smartcore-metrics"] }
@@ -82,6 +88,13 @@ onnx = [
     "smartcore/serde",
 ]
 
+# Phase 4 · PYTHON — pyo3 bindings (`pip install millwright`), built by maturin.
+# Deliberately NOT part of `full`: pyo3's `extension-module` defers libpython
+# symbols, so a plain `cargo test`/`clippy` cannot link a test binary with it.
+# Build & test this feature through maturin instead (see pyproject.toml).
+python = ["dep:pyo3", "smartcore-backend"]
+
+# Every Rust-facing feature (everything except the Python extension).
 full = [
     "smartcore-backend",
     "preprocessing",
@@ -111,3 +124,7 @@ required-features = ["smartcore-backend", "linfa-backend", "hpo"]
 [[example]]
 name = "insight"
 required-features = ["smartcore-backend", "diagnostics", "explain", "viz"]
+
+[[example]]
+name = "portability"
+required-features = ["smartcore-backend", "onnx"]

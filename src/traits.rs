@@ -100,6 +100,15 @@ pub trait Transformer: TransformerClone {
         self.transform(frame)
     }
 
+    /// If (once fitted) this transformer is an affine map
+    /// `y = (x - shift) / scale` per column, return `(shift, scale)`.
+    ///
+    /// Scalers implement this so a [`Pipeline`](crate::pipeline::Pipeline) can be
+    /// folded into a single ONNX graph. Non-affine transformers return `None`.
+    fn as_affine(&self) -> Option<(Vec<f64>, Vec<f64>)> {
+        None
+    }
+
     /// Set a hyperparameter by name. Unknown names are an error.
     fn set_param(&mut self, name: &str, _value: ParamValue) -> Result<()> {
         Err(Error::Param(format!(
@@ -142,6 +151,17 @@ pub trait Estimator {
     fn set_param(&mut self, name: &str, _value: ParamValue) -> Result<()> {
         Err(Error::Param(format!(
             "{} has no parameter '{name}'",
+            self.name()
+        )))
+    }
+
+    /// Build this estimator's ONNX graph, if it supports export. Overridden by
+    /// backends that are ONNX-exportable; the default reports the estimator is
+    /// not exportable.
+    #[cfg(feature = "onnx")]
+    fn to_onnx_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        Err(Error::Backend(format!(
+            "{} is not ONNX-exportable",
             self.name()
         )))
     }

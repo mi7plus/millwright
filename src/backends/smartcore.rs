@@ -108,6 +108,11 @@ impl Estimator for RandomForest {
         }
         Ok(())
     }
+
+    #[cfg(feature = "onnx")]
+    fn to_onnx_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        crate::onnx::ExportOnnx::to_onnx(self)
+    }
 }
 
 impl Predictor for RandomForest {
@@ -155,6 +160,11 @@ impl Estimator for LinearRegression {
         self.model = Some(Arc::new(model));
         Ok(())
     }
+
+    #[cfg(feature = "onnx")]
+    fn to_onnx_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        crate::onnx::ExportOnnx::to_onnx(self)
+    }
 }
 
 impl Predictor for LinearRegression {
@@ -189,6 +199,36 @@ impl crate::onnx::ExportOnnx for RandomForest {
             .map_err(|e| Error::Backend(format!("RandomForest ONNX adapter failed: {e}")))?;
         export_tree_ensemble(&forest, TreeTask::Classification)
             .map_err(|e| Error::Backend(format!("RandomForest ONNX export failed: {e}")))
+    }
+}
+
+/// Export a fitted [`LinearRegression`] to an ONNX `Gemm` graph.
+///
+/// The canonical weights are read from smartcore's own coefficient/intercept
+/// accessors, so this is independent of onnx-export's smartcore version. Unlike
+/// the tree ensemble, the resulting graph runs in tract.
+#[cfg(feature = "onnx")]
+impl crate::onnx::ExportOnnx for LinearRegression {
+    fn to_onnx(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        use onnx_export_rs::canonical::LinearModelWeights;
+        use onnx_export_rs::exporters::export_linear;
+        use smartcore::linalg::basic::arrays::Array;
+
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| Error::NotFitted("LinearRegression::to_onnx".into()))?;
+        let coef = model.coefficients();
+        let (nr, nc) = coef.shape();
+        let mut coefficients = Vec::with_capacity(nr * nc);
+        for r in 0..nr {
+            for c in 0..nc {
+                coefficients.push(*coef.get((r, c)));
+            }
+        }
+        let weights =
+            LinearModelWeights::new(ndarray::Array1::from(coefficients), *model.intercept());
+        Ok(export_linear(&weights))
     }
 }
 

@@ -143,6 +143,51 @@ impl Predictor for Pipeline {
     }
 }
 
+/// Export the whole pipeline as one ONNX graph: the leading affine transformers
+/// (scalers) are folded into a single `(x - shift) / scale` and spliced in front
+/// of the estimator's graph. A non-affine step (imputation, one-hot) is reported
+/// as an error naming the step; the train-time balancer is inference-irrelevant
+/// and skipped.
+#[cfg(feature = "onnx")]
+impl crate::onnx::ExportOnnx for Pipeline {
+    fn to_onnx(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        let (_, est) = self.require_estimator()?;
+        let mut proto = est.to_onnx_proto()?;
+
+        // Compose the leading transformers into one affine map.
+        let mut combined: Option<(Vec<f64>, Vec<f64>)> = None;
+        for (name, t) in &self.steps {
+            let (shift, scale) = t.as_affine().ok_or_else(|| {
+                Error::Backend(format!(
+                    "pipeline step '{name}' ({}) is not ONNX-exportable",
+                    t.name()
+                ))
+            })?;
+            combined = Some(match combined {
+                None => (shift, scale),
+                // f2(f1(x)) = (x - (s0 + s*c0)) / (c0 * c), elementwise
+                Some((s0, c0)) => {
+                    let new_shift = s0
+                        .iter()
+                        .zip(&shift)
+                        .zip(&c0)
+                        .map(|((s0i, si), c0i)| s0i + si * c0i)
+                        .collect();
+                    let new_scale = c0.iter().zip(&scale).map(|(c0i, ci)| c0i * ci).collect();
+                    (new_shift, new_scale)
+                }
+            });
+        }
+
+        if let Some((shift, scale)) = combined {
+            let shift_f: Vec<f32> = shift.iter().map(|v| *v as f32).collect();
+            let scale_f: Vec<f32> = scale.iter().map(|v| *v as f32).collect();
+            crate::onnx::prepend_affine(&mut proto, &shift_f, &scale_f)?;
+        }
+        Ok(proto)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

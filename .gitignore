@@ -4,3 +4,9 @@ Cargo.lock
 # IDE
 /.idea
 /.vscode
+
+# Python / maturin
+/.venv
+/wheels
+*.pyd
+__pycache__/
