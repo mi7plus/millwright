@@ -79,6 +79,7 @@
   .top nav{display:flex; gap:.95rem; font-family:var(--font-mono); font-size:.74rem; letter-spacing:.03em}
   .top nav a{color:var(--ink-soft); text-decoration:none}
   .top nav a:hover{color:var(--oxide-ink)}
+  .top nav a.repo{color:var(--oxide); font-weight:600}
   @media(max-width:680px){.top nav{display:none}}
 
   /* ---- hero ---- */
@@ -203,17 +204,18 @@
 
 </head><body><header class="top">
   <div class="wrap">
-    <div class="brand"><span class="mark">⚙</span>millwright<span class="ver">design&nbsp;brief · draft</span></div>
+    <div class="brand"><span class="mark">⚙</span>millwright<span class="ver">design&nbsp;brief · phases 0–4 shipped</span></div>
     <nav>
-      <a href="file:///C:/Users/marke/AppData/Local/Temp/claude/C--Users-marke-Rust-ML-Guide-rust-ml-guide/acbddd37-de8d-419f-b12c-10d7c1953c23/scratchpad/millwright-design-brief.html#idea">idea</a>
-      <a href="file:///C:/Users/marke/AppData/Local/Temp/claude/C--Users-marke-Rust-ML-Guide-rust-ml-guide/acbddd37-de8d-419f-b12c-10d7c1953c23/scratchpad/millwright-design-brief.html#arch">arch</a>
-      <a href="file:///C:/Users/marke/AppData/Local/Temp/claude/C--Users-marke-Rust-ML-Guide-rust-ml-guide/acbddd37-de8d-419f-b12c-10d7c1953c23/scratchpad/millwright-design-brief.html#api">api</a>
-      <a href="file:///C:/Users/marke/AppData/Local/Temp/claude/C--Users-marke-Rust-ML-Guide-rust-ml-guide/acbddd37-de8d-419f-b12c-10d7c1953c23/scratchpad/millwright-design-brief.html#eda">eda</a>
-      <a href="file:///C:/Users/marke/AppData/Local/Temp/claude/C--Users-marke-Rust-ML-Guide-rust-ml-guide/acbddd37-de8d-419f-b12c-10d7c1953c23/scratchpad/millwright-design-brief.html#ensembles">ensembles</a>
-      <a href="file:///C:/Users/marke/AppData/Local/Temp/claude/C--Users-marke-Rust-ML-Guide-rust-ml-guide/acbddd37-de8d-419f-b12c-10d7c1953c23/scratchpad/millwright-design-brief.html#automl">automl</a>
-      <a href="file:///C:/Users/marke/AppData/Local/Temp/claude/C--Users-marke-Rust-ML-Guide-rust-ml-guide/acbddd37-de8d-419f-b12c-10d7c1953c23/scratchpad/millwright-design-brief.html#python">python</a>
-      <a href="file:///C:/Users/marke/AppData/Local/Temp/claude/C--Users-marke-Rust-ML-Guide-rust-ml-guide/acbddd37-de8d-419f-b12c-10d7c1953c23/scratchpad/millwright-design-brief.html#features">features</a>
-      <a href="file:///C:/Users/marke/AppData/Local/Temp/claude/C--Users-marke-Rust-ML-Guide-rust-ml-guide/acbddd37-de8d-419f-b12c-10d7c1953c23/scratchpad/millwright-design-brief.html#road">roadmap</a>
+      <a href="#idea">idea</a>
+      <a href="#arch">arch</a>
+      <a href="#api">api</a>
+      <a href="#eda">eda</a>
+      <a href="#ensembles">ensembles</a>
+      <a href="#automl">automl</a>
+      <a href="#python">python</a>
+      <a href="#features">features</a>
+      <a href="#road">roadmap</a>
+      <a href="https://github.com/mi7plus/millwright" class="repo">GitHub ↗</a>
     </nav>
   </div>
 </header>
@@ -704,10 +706,10 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
       </div>
       <div class="road">
         <div class="phase done"><div class="pn">PHASE 0 · THE SPINE</div><h4>Frame, traits &amp; the first backend</h4><p>The <code class="inl">Frame</code> data model, the four traits, a <span class="mono">smartcore</span> adapter, and <code class="inl">Pipeline</code> composition.</p><div class="ships">ships → fit · transform · predict · Pipeline</div></div>
-        <div class="phase"><div class="pn">PHASE 1 · PREP &amp; SELECT</div><h4>Preprocessing + cross-validation</h4><p>Imputers, scalers, encoders, SMOTE as transformers; stratified CV and grid/random search over a whole pipeline — plus voting &amp; bagging ensembles, with stacking riding the same CV engine.</p><div class="ships">ships → a real, tunable, ensemble-ready workflow</div></div>
-        <div class="phase"><div class="pn">PHASE 2 · BACKENDS &amp; HPO</div><h4>linfa adapter + Bayesian search</h4><p>Prove the boundary conversion with linfa clustering/PCA; add TPE / hyperopt-rs search behind the same search API.</p><div class="ships">ships → two backends, one contract</div></div>
-        <div class="phase"><div class="pn">PHASE 3 · INSIGHT</div><h4>Evaluation, diagnostics &amp; explainability</h4><p>Evaluation reports, <span class="mono">regression-diagnostics</span>, SHAP via <span class="mono">shap-rs</span>, and <span class="mono">plotters-statistical</span> report figures.</p><div class="ships">ships → trust the model, not just run it</div></div>
-        <div class="phase"><div class="pn">PHASE 4 · PORTABILITY &amp; PYTHON</div><h4>ONNX artifact + the first bindings</h4><p>Export any pipeline via <span class="mono">onnx-export-rs</span>; a <span class="mono">tract</span>-backed <code class="inl">InferenceModel</code>; and the first <span class="mono">pyo3</span> bindings over the now-stable trait API, so the Python package tracks the same core.</p><div class="ships">ships → train once; run in Rust, Python, or any ONNX runtime</div></div>
+        <div class="phase done"><div class="pn">PHASE 1 · PREP &amp; SELECT</div><h4>Preprocessing + cross-validation</h4><p>Imputers, scalers, encoders, SMOTE as transformers; stratified CV and grid/random search over a whole pipeline — plus voting &amp; bagging ensembles, with stacking riding the same CV engine.</p><div class="ships">ships → a real, tunable, ensemble-ready workflow</div></div>
+        <div class="phase done"><div class="pn">PHASE 2 · BACKENDS &amp; HPO</div><h4>linfa adapter + Bayesian search</h4><p>Prove the boundary conversion with linfa clustering/PCA; add TPE / hyperopt-rs search behind the same search API.</p><div class="ships">ships → two backends, one contract</div></div>
+        <div class="phase done"><div class="pn">PHASE 3 · INSIGHT</div><h4>Evaluation, diagnostics &amp; explainability</h4><p>Evaluation reports, <span class="mono">regression-diagnostics</span>, SHAP via <span class="mono">shap-rs</span>, and <span class="mono">plotters-statistical</span> report figures.</p><div class="ships">ships → trust the model, not just run it</div></div>
+        <div class="phase done"><div class="pn">PHASE 4 · PORTABILITY &amp; PYTHON</div><h4>ONNX artifact + the first bindings</h4><p>Export any pipeline via <span class="mono">onnx-export-rs</span>; a <span class="mono">tract</span>-backed <code class="inl">InferenceModel</code>; and the first <span class="mono">pyo3</span> bindings over the now-stable trait API, so the Python package tracks the same core.</p><div class="ships">ships → train once; run in Rust, Python, or any ONNX runtime</div></div>
         <div class="phase"><div class="pn">PHASE 5 · OPERATIONS</div><h4>Serving, monitoring &amp; a registry</h4><p><span class="mono">axum</span> server, <span class="mono">driftwatch</span> monitoring, and a versioned model registry (artifact + metadata + reference distribution).</p><div class="ships">ships → past where scikit-learn stops</div></div>
         <div class="phase"><div class="pn">PHASE 6 · SPECIALIZED</div><h4>Time series &amp; out-of-core</h4><p><span class="mono">chronos-ts</span> forecasting pipelines and <span class="mono">incremental-rs</span> <code class="inl">partial_fit</code> — same contract, different data shapes.</p><div class="ships">ships → the long tail of real workloads</div></div>
         <div class="phase"><div class="pn">PHASE 7 · SYNTHESIS</div><h4>AutoML — the framework, pointed at itself</h4><p>Search preprocessing × model × hyperparameters × ensembling under a budget, seeded by <code class="inl">Profile</code> and scored by the CV engine — returning a deployable, ONNX-exportable winner and a leaderboard.</p><div class="ships">ships → auto-sklearn, but the output actually deploys</div></div>
@@ -749,8 +751,8 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
 
 <footer>
   <div class="wrap">
-    <span class="mono">⚙ millwright — design brief · draft 1</span>
-    <span class="mono">the trade of assembling ten crates into one machine</span>
+    <span class="mono">⚙ millwright — phases 0–4 shipped</span>
+    <span class="mono"><a href="https://github.com/mi7plus/millwright">github.com/mi7plus/millwright</a></span>
   </div>
 </footer>
 </body></html>
