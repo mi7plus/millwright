@@ -54,10 +54,16 @@ pub mod diagnostics;
 pub mod ensemble;
 #[cfg(feature = "explain")]
 pub mod explain;
+#[cfg(feature = "monitor")]
+pub mod monitor;
 #[cfg(feature = "onnx")]
 pub mod onnx;
+#[cfg(feature = "registry")]
+pub mod registry;
 #[cfg(feature = "model-selection")]
 pub mod selection;
+#[cfg(feature = "serve")]
+pub mod serve;
 #[cfg(feature = "viz")]
 pub mod viz;
 
@@ -111,6 +117,15 @@ pub mod prelude {
 
     #[cfg(feature = "onnx")]
     pub use crate::onnx::{ExportOnnx, InferenceModel};
+
+    #[cfg(feature = "registry")]
+    pub use crate::registry::{Metadata, Registry, Version};
+
+    #[cfg(feature = "monitor")]
+    pub use crate::monitor::{DriftMonitor, DriftStatus};
+
+    #[cfg(feature = "serve")]
+    pub use crate::serve::Server;
 
     #[cfg(feature = "ensemble")]
     pub use crate::ensemble::{Bagging, Voting, VotingKind};

@@ -32,6 +32,16 @@ plotters-statistical = { version = "0.2", optional = true }
 plotters = { version = "0.3.7", default-features = false, features = ["svg_backend", "all_series"], optional = true }
 onnx-export-rs = { version = "0.1", optional = true, features = ["smartcore-compat"] }
 tract-onnx = { version = "0.23", optional = true }
+driftwatch = { version = "0.1", optional = true }
+axum = { version = "0.8", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
 
 [features]
 # Phase 0 · THE SPINE — the smartcore backend is the first (and default) engine.
@@ -94,6 +104,18 @@ onnx = [
 # Build & test this feature through maturin instead (see pyproject.toml).
 python = ["dep:pyo3", "smartcore-backend"]
 
+# Phase 5 · OPERATIONS — past where scikit-learn stops.
+# A versioned model registry: content-addressed ONNX artifact + metadata +
+# reference distribution, with movable tags and rollback.
+registry = ["dep:serde", "dep:serde_json", "onnx"]
+
+# PSI prediction-drift monitoring via driftwatch.
+monitor = ["dep:driftwatch"]
+
+# An axum HTTP inference server (/predict + validation, /metrics drift), backed
+# by the tract InferenceModel and an optional drift monitor.
+serve = ["dep:axum", "dep:tokio", "dep:serde", "dep:serde_json", "onnx"]
+
 # Every Rust-facing feature (everything except the Python extension).
 full = [
     "smartcore-backend",
@@ -106,8 +128,10 @@ full = [
     "explain",
     "viz",
     "onnx",
+    "registry",
+    "monitor",
+    "serve",
 ]
-onnx-export-rs = ["dep:onnx-export-rs"]
 
 [[example]]
 name = "spine"
@@ -128,3 +152,7 @@ required-features = ["smartcore-backend", "diagnostics", "explain", "viz"]
 [[example]]
 name = "portability"
 required-features = ["smartcore-backend", "onnx"]
+
+[[example]]
+name = "operations"
+required-features = ["smartcore-backend", "onnx", "registry", "monitor", "serve"]

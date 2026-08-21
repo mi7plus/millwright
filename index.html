@@ -204,7 +204,7 @@
 
 </head><body><header class="top">
   <div class="wrap">
-    <div class="brand"><span class="mark">⚙</span>millwright<span class="ver">design&nbsp;brief · phases 0–4 shipped</span></div>
+    <div class="brand"><span class="mark">⚙</span>millwright<span class="ver">design&nbsp;brief · phases 0–5 shipped</span></div>
     <nav>
       <a href="#arch">arch</a>
       <a href="#api">api</a>
@@ -695,7 +695,7 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
         <div class="phase done"><div class="pn">PHASE 2 · BACKENDS &amp; HPO</div><h4>linfa adapter + Bayesian search</h4><p>Prove the boundary conversion with linfa clustering/PCA; add TPE / hyperopt-rs search behind the same search API.</p><div class="ships">ships → two backends, one contract</div></div>
         <div class="phase done"><div class="pn">PHASE 3 · INSIGHT</div><h4>Evaluation, diagnostics &amp; explainability</h4><p>Evaluation reports, <span class="mono">regression-diagnostics</span>, SHAP via <span class="mono">shap-rs</span>, and <span class="mono">plotters-statistical</span> report figures.</p><div class="ships">ships → trust the model, not just run it</div></div>
         <div class="phase done"><div class="pn">PHASE 4 · PORTABILITY &amp; PYTHON</div><h4>ONNX artifact + the first bindings</h4><p>Export any pipeline via <span class="mono">onnx-export-rs</span>; a <span class="mono">tract</span>-backed <code class="inl">InferenceModel</code>; and the first <span class="mono">pyo3</span> bindings over the now-stable trait API, so the Python package tracks the same core.</p><div class="ships">ships → train once; run in Rust, Python, or any ONNX runtime</div></div>
-        <div class="phase"><div class="pn">PHASE 5 · OPERATIONS</div><h4>Serving, monitoring &amp; a registry</h4><p><span class="mono">axum</span> server, <span class="mono">driftwatch</span> monitoring, and a versioned model registry (artifact + metadata + reference distribution).</p><div class="ships">ships → past where scikit-learn stops</div></div>
+        <div class="phase done"><div class="pn">PHASE 5 · OPERATIONS</div><h4>Serving, monitoring &amp; a registry</h4><p><span class="mono">axum</span> server, <span class="mono">driftwatch</span> monitoring, and a versioned model registry (artifact + metadata + reference distribution).</p><div class="ships">ships → past where scikit-learn stops</div></div>
         <div class="phase"><div class="pn">PHASE 6 · SPECIALIZED</div><h4>Time series &amp; out-of-core</h4><p><span class="mono">chronos-ts</span> forecasting pipelines and <span class="mono">incremental-rs</span> <code class="inl">partial_fit</code> — same contract, different data shapes.</p><div class="ships">ships → the long tail of real workloads</div></div>
         <div class="phase"><div class="pn">PHASE 7 · SYNTHESIS</div><h4>AutoML — the framework, pointed at itself</h4><p>Search preprocessing × model × hyperparameters × ensembling under a budget, seeded by <code class="inl">Profile</code> and scored by the CV engine — returning a deployable, ONNX-exportable winner and a leaderboard.</p><div class="ships">ships → auto-sklearn, but the output actually deploys</div></div>
         <div class="phase"><div class="pn">PHASE 8 · HARDEN → 1.0</div><h4>Pin, prove, document</h4><p>Exact-version pins on every engine, golden-output tests, a feature-matrix CI, and the existing guide re-cast as Millwright's tutorial.</p><div class="ships">ships → a framework you can bet on</div></div>
@@ -736,7 +736,7 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
 
 <footer>
   <div class="wrap">
-    <span class="mono">⚙ millwright — phases 0–4 shipped</span>
+    <span class="mono">⚙ millwright — phases 0–5 shipped</span>
     <span class="mono"><a href="https://github.com/mi7plus/millwright">github.com/mi7plus/millwright</a></span>
   </div>
 </footer>

@@ -5,7 +5,7 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
 The full design brief and guide live at **<https://millwright-rs.dev/>**
 (also [`millwright-design-brief.pdf`](millwright-design-brief.pdf)).
 
-## Status: Phases 0–4 — done
+## Status: Phases 0–5 — done
 
 ### Phase 0 · the spine
 
@@ -96,9 +96,30 @@ maturin develop --features python
 [`regression-diagnostics`]: https://crates.io/crates/regression-diagnostics
 [`shap-rs`]: https://crates.io/crates/shap-rs
 [`plotters-statistical`]: https://crates.io/crates/plotters-statistical
+### Phase 5 · operations — *past where scikit-learn stops*
+
+- **Registry** (`src/registry.rs`, feature `registry`): `Registry::local(path)`
+  versions a model's ONNX artifact, content-addressed (identical models dedupe),
+  with metadata + reference distribution, movable tags, and `rollback`.
+- **Drift monitor** (`src/monitor.rs`, via [`driftwatch`], feature `monitor`):
+  `DriftMonitor::psi(reference)` watches the prediction stream — `observe` +
+  `report` give live PSI and a drift verdict.
+- **Server** (`src/serve.rs`, via [`axum`], feature `serve`): `Server::from_onnx`
+  exposes `POST /predict` (validated) over the tract runtime; with a monitor
+  attached, every request feeds it and `GET /metrics` reports drift.
+
+```rust
+Server::from_onnx(reg.onnx_path("churn", "prod")?)?
+    .route("/predict")
+    .with_monitor(DriftMonitor::psi(&reference)?)
+    .serve("0.0.0.0:8080").await?;
+```
+
 [`onnx-export-rs`]: https://crates.io/crates/onnx-export-rs
 [`tract`]: https://crates.io/crates/tract-onnx
 [`pyo3`]: https://pyo3.rs/
+[`driftwatch`]: https://crates.io/crates/driftwatch
+[`axum`]: https://crates.io/crates/axum
 
 ### Quickstart
 
@@ -143,6 +164,10 @@ cargo run --example insight --features "smartcore-backend diagnostics explain vi
 cargo run --example portability --features "smartcore-backend onnx"
 ```
 
+```bash
+cargo run --example operations --features "smartcore-backend onnx registry monitor serve"
+```
+
 ### Building on Windows
 
 The default toolchain is MSVC. If a Unix `link.exe` (e.g. from Git/Laragon) is
@@ -152,5 +177,5 @@ first, so the MSVC linker is found before the shadowing one.
 
 ## Roadmap
 
-Phases 0–4 are done. Phases 5–8 — serving & monitoring, time series &
-out-of-core, AutoML, and 1.0 hardening — are laid out in the design brief.
+Phases 0–5 are done. Phases 6–8 — time series & out-of-core, AutoML, and 1.0
+hardening — are laid out in the design brief.
