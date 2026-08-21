@@ -80,6 +80,8 @@
   .top nav a{color:var(--ink-soft); text-decoration:none}
   .top nav a:hover{color:var(--oxide-ink)}
   .top nav a.repo{color:var(--oxide); font-weight:600}
+  .top nav a.guidelink{background:var(--oxide-tint); color:var(--oxide-ink); padding:.22rem .58rem; border-radius:6px; font-weight:600}
+  .top nav a.guidelink:hover{background:var(--oxide); color:#fff}
   @media(max-width:680px){.top nav{display:none}}
 
   /* ---- hero ---- */
@@ -94,6 +96,16 @@
     border:1px solid var(--line); background:var(--surface); color:var(--ink-soft);
   }
   .pill b{color:var(--oxide); font-weight:600}
+  .cta{display:flex; flex-wrap:wrap; align-items:center; gap:.65rem; margin-top:1.9rem}
+  .btn{
+    font-family:var(--font-mono); font-size:.82rem; font-weight:600; text-decoration:none;
+    padding:.58rem .95rem; border-radius:8px; border:1px solid var(--line);
+    background:var(--surface); color:var(--ink); box-shadow:var(--shadow);
+  }
+  .btn:hover{border-color:var(--oxide)}
+  .btn.primary{background:var(--oxide); border-color:var(--oxide); color:#fff}
+  .btn.primary:hover{background:var(--oxide-ink); border-color:var(--oxide-ink)}
+  .cta code{font-family:var(--font-mono); font-size:.8rem; color:var(--ink-soft); background:var(--surface-3); padding:.5rem .7rem; border-radius:7px; border:1px solid var(--line)}
 
   section{padding:40px 0; border-top:1px solid var(--line-soft)}
   section > .wrap > .head{margin-bottom:1.8rem}
@@ -204,7 +216,7 @@
 
 </head><body><header class="top">
   <div class="wrap">
-    <div class="brand"><span class="mark">⚙</span>millwright<span class="ver">design&nbsp;brief · phases 0–7 shipped</span></div>
+    <div class="brand"><span class="mark">⚙</span>millwright<span class="ver">v0.1</span></div>
     <nav>
       <a href="#arch">arch</a>
       <a href="#api">api</a>
@@ -213,7 +225,7 @@
       <a href="#automl">automl</a>
       <a href="#python">python</a>
       <a href="#features">features</a>
-      <a href="#road">roadmap</a>
+      <a href="guide.html" class="guidelink">guide</a>
       <a href="https://github.com/mi7plus/millwright" class="repo">GitHub ↗</a>
     </nav>
   </div>
@@ -233,6 +245,11 @@
         <span class="pill">capabilities are <b>cargo features</b></span>
         <span class="pill"><b>Rust</b> core · <b>Python</b> API</span>
       </div>
+      <div class="cta">
+        <a class="btn primary" href="guide.html">Read the guide →</a>
+        <a class="btn" href="https://github.com/mi7plus/millwright">GitHub</a>
+        <code>cargo add millwright</code>
+      </div>
     </div>
   </div>
 
@@ -245,8 +262,8 @@
         <p class="muted">Each stage is a first-class step powered by a crate you already own. Exploration sits up front — the Rust answer to pandas-profiling — and the last two stages are where Millwright runs past scikit-learn.</p>
       </div>
       <div class="flow">
-        <div class="stage"><span class="n">01 · INGEST</span><h4>Load &amp; frame</h4><div class="by">polars → Frame</div><div class="note">CSV/Parquet/Arrow into one columnar container with a schema.</div></div>
-        <div class="stage"><span class="n">02 · EXPLORE</span><h4>Profile the data</h4><div class="by">plotters-statistical · polars</div><div class="note">One call → summary stats, distributions, missingness, correlation, outliers, target relationship.</div></div>
+        <div class="stage"><span class="n">01 · INGEST</span><h4>Load &amp; frame</h4><div class="by">polars → Table → Frame</div><div class="note">CSV/Parquet into a typed, dtype-aware <code class="inl">Table</code>, lowered to the numeric <code class="inl">Frame</code>.</div></div>
+        <div class="stage"><span class="n">02 · EXPLORE</span><h4>Profile the data</h4><div class="by">Table → Profile</div><div class="note">One call → stats, missingness, correlation, outliers, alerts — and a suggested pipeline.</div></div>
         <div class="stage"><span class="n">03 · PREP</span><h4>Preprocess</h4><div class="by">imbalance-rs</div><div class="note">Impute · encode · scale · SMOTE — as pipeline transformers.</div></div>
         <div class="stage"><span class="n">04 · SELECT</span><h4>Search &amp; validate</h4><div class="by">model-selection-rs · hyperopt-rs</div><div class="note">Stratified CV, grid / random / Bayesian search over the pipeline.</div></div>
         <div class="stage"><span class="n">05 · FIT</span><h4>Train</h4><div class="by">linfa · smartcore</div><div class="note">Any backend model, behind one <code class="inl">Estimator</code> contract.</div></div>
@@ -681,28 +698,6 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
     </div>
   </section>
 
-  <!-- ===================== ROADMAP ===================== -->
-  <section id="road">
-    <div class="wrap">
-      <div class="head col">
-        <div class="eyebrow">Roadmap</div>
-        <h2>Ship the spine, then light up features.</h2>
-        <p class="muted">Build the contract and one backend first — a working <code class="inl">fit</code>/<code class="inl">predict</code>/<code class="inl">Pipeline</code> is the smallest thing that proves the design. Everything after is an adapter behind traits that already exist.</p>
-      </div>
-      <div class="road">
-        <div class="phase done"><div class="pn">PHASE 0 · THE SPINE</div><h4>Frame, traits &amp; the first backend</h4><p>The <code class="inl">Frame</code> data model, the four traits, a <span class="mono">smartcore</span> adapter, and <code class="inl">Pipeline</code> composition.</p><div class="ships">ships → fit · transform · predict · Pipeline</div></div>
-        <div class="phase done"><div class="pn">PHASE 1 · PREP &amp; SELECT</div><h4>Preprocessing + cross-validation</h4><p>Imputers, scalers, encoders, SMOTE as transformers; stratified CV and grid/random search over a whole pipeline — plus voting &amp; bagging ensembles, with stacking riding the same CV engine.</p><div class="ships">ships → a real, tunable, ensemble-ready workflow</div></div>
-        <div class="phase done"><div class="pn">PHASE 2 · BACKENDS &amp; HPO</div><h4>linfa adapter + Bayesian search</h4><p>Prove the boundary conversion with linfa clustering/PCA; add TPE / hyperopt-rs search behind the same search API.</p><div class="ships">ships → two backends, one contract</div></div>
-        <div class="phase done"><div class="pn">PHASE 3 · INSIGHT</div><h4>Evaluation, diagnostics &amp; explainability</h4><p>Evaluation reports, <span class="mono">regression-diagnostics</span>, SHAP via <span class="mono">shap-rs</span>, and <span class="mono">plotters-statistical</span> report figures.</p><div class="ships">ships → trust the model, not just run it</div></div>
-        <div class="phase done"><div class="pn">PHASE 4 · PORTABILITY &amp; PYTHON</div><h4>ONNX artifact + the first bindings</h4><p>Export any pipeline via <span class="mono">onnx-export-rs</span>; a <span class="mono">tract</span>-backed <code class="inl">InferenceModel</code>; and the first <span class="mono">pyo3</span> bindings over the now-stable trait API, so the Python package tracks the same core.</p><div class="ships">ships → train once; run in Rust, Python, or any ONNX runtime</div></div>
-        <div class="phase done"><div class="pn">PHASE 5 · OPERATIONS</div><h4>Serving, monitoring &amp; a registry</h4><p><span class="mono">axum</span> server, <span class="mono">driftwatch</span> monitoring, and a versioned model registry (artifact + metadata + reference distribution).</p><div class="ships">ships → past where scikit-learn stops</div></div>
-        <div class="phase done"><div class="pn">PHASE 6 · SPECIALIZED</div><h4>Time series &amp; out-of-core</h4><p><span class="mono">chronos-ts</span> forecasting pipelines and <span class="mono">incremental-rs</span> <code class="inl">partial_fit</code> — same contract, different data shapes.</p><div class="ships">ships → the long tail of real workloads</div></div>
-        <div class="phase done"><div class="pn">PHASE 7 · SYNTHESIS</div><h4>AutoML — the framework, pointed at itself</h4><p>Search preprocessing × model × hyperparameters × ensembling under a budget, seeded by <code class="inl">Profile</code> and scored by the CV engine — returning a deployable, ONNX-exportable winner and a leaderboard.</p><div class="ships">ships → auto-sklearn, but the output actually deploys</div></div>
-        <div class="phase"><div class="pn">PHASE 8 · HARDEN → 1.0</div><h4>Pin, prove, document</h4><p>Exact-version pins on every engine, golden-output tests, a feature-matrix CI, and the existing guide re-cast as Millwright's tutorial.</p><div class="ships">ships → a framework you can bet on</div></div>
-      </div>
-    </div>
-  </section>
-
   <!-- ===================== BOUNDARIES ===================== -->
   <section id="boundaries">
     <div class="wrap">
@@ -736,8 +731,8 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
 
 <footer>
   <div class="wrap">
-    <span class="mono">⚙ millwright — phases 0–7 shipped</span>
-    <span class="mono"><a href="https://github.com/mi7plus/millwright">github.com/mi7plus/millwright</a></span>
+    <span class="mono">⚙ millwright — proven Rust crates, assembled into one machine</span>
+    <span class="mono"><a href="guide.html">guide</a> · <a href="https://github.com/mi7plus/millwright">github.com/mi7plus/millwright</a></span>
   </div>
 </footer>
 </body></html>
