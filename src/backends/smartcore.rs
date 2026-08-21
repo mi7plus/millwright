@@ -170,6 +170,28 @@ impl Predictor for LinearRegression {
     }
 }
 
+/// Export a fitted [`RandomForest`] to an ONNX tree-ensemble classifier.
+///
+/// Uses onnx-export-rs's serde-based compat adapter, so it is independent of the
+/// smartcore version onnx-export itself was built against.
+#[cfg(feature = "onnx")]
+impl crate::onnx::ExportOnnx for RandomForest {
+    fn to_onnx(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        use onnx_export_rs::adapters::smartcore_compat::random_forest_classifier;
+        use onnx_export_rs::canonical::TreeTask;
+        use onnx_export_rs::exporters::export_tree_ensemble;
+
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| Error::NotFitted("RandomForest::to_onnx".into()))?;
+        let (forest, _labels) = random_forest_classifier(&**model)
+            .map_err(|e| Error::Backend(format!("RandomForest ONNX adapter failed: {e}")))?;
+        export_tree_ensemble(&forest, TreeTask::Classification)
+            .map_err(|e| Error::Backend(format!("RandomForest ONNX export failed: {e}")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -2,7 +2,7 @@
 
 A unified ML framework for Rust — *ten crates, one lifecycle.*
 
-See [`Millwright.html`](Millwright.html) / [`millwright-design-brief.pdf`](millwright-design-brief.pdf)
+See [`Millwright.html`](index.html) / [`millwright-design-brief.pdf`](millwright-design-brief.pdf)
 for the full design brief.
 
 ## Status: Phases 0–3 — done

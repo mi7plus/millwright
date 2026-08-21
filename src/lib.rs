@@ -54,6 +54,8 @@ pub mod diagnostics;
 pub mod ensemble;
 #[cfg(feature = "explain")]
 pub mod explain;
+#[cfg(feature = "onnx")]
+pub mod onnx;
 #[cfg(feature = "model-selection")]
 pub mod selection;
 #[cfg(feature = "viz")]
@@ -103,6 +105,9 @@ pub mod prelude {
 
     #[cfg(feature = "viz")]
     pub use crate::viz;
+
+    #[cfg(feature = "onnx")]
+    pub use crate::onnx::{ExportOnnx, InferenceModel};
 
     #[cfg(feature = "ensemble")]
     pub use crate::ensemble::{Bagging, Voting, VotingKind};
