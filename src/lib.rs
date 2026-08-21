@@ -82,7 +82,8 @@ pub mod prelude {
     pub use crate::evaluate::{Evaluate, Report, Task};
     pub use crate::pipeline::Pipeline;
     pub use crate::traits::{
-        Balancer, Clusterer, Estimator, Model, ParamValue, Predictor, ProbaPredictor, Transformer,
+        Balancer, Clusterer, Estimator, Forecaster, Model, ParamValue, PartialFit, Predictor,
+        ProbaPredictor, Transformer,
     };
     pub use crate::transform::{
         ImputeStrategy, MinMaxScaler, OneHotEncoder, SimpleImputer, StandardScaler,
@@ -93,6 +94,12 @@ pub mod prelude {
 
     #[cfg(feature = "linfa-backend")]
     pub use crate::backends::linfa::{Dbscan, GaussianMixture, KMeans, Pca};
+
+    #[cfg(feature = "timeseries")]
+    pub use crate::backends::chronos::AutoArima;
+
+    #[cfg(feature = "incremental")]
+    pub use crate::backends::incremental::IncrementalLinear;
 
     #[cfg(feature = "preprocessing")]
     pub use crate::balance::{RandomOverSampler, Smote};

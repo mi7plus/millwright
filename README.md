@@ -5,7 +5,7 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
 The full design brief and guide live at **<https://millwright-rs.dev/>**
 (also [`millwright-design-brief.pdf`](millwright-design-brief.pdf)).
 
-## Status: Phases 0–5 — done
+## Status: Phases 0–6 — done
 
 ### Phase 0 · the spine
 
@@ -118,8 +118,25 @@ Server::from_onnx(reg.onnx_path("churn", "prod")?)?
 [`onnx-export-rs`]: https://crates.io/crates/onnx-export-rs
 [`tract`]: https://crates.io/crates/tract-onnx
 [`pyo3`]: https://pyo3.rs/
+### Phase 6 · specialized — *the long tail of real workloads*
+
+Same contract, different data shapes — each gets its own trait.
+
+- **Time series** (`src/backends/chronos.rs`, via [`chronos-ts`], feature
+  `timeseries`): `AutoArima` implements a `Forecaster` — `fit(&series)` then
+  `forecast(steps)`.
+- **Out-of-core** (`src/backends/incremental.rs`, via [`incremental-rs`], feature
+  `incremental`): `IncrementalLinear` implements `PartialFit` + `Predictor` —
+  `partial_fit(&batch)` learns one batch at a time.
+
+These two crates pin `ndarray 0.15` while the rest of the stack uses `0.16`;
+Cargo links both, and the boundary conversion happens only inside these
+adapters — the "two ndarray worlds" the design settles, now exercised for real.
+
 [`driftwatch`]: https://crates.io/crates/driftwatch
 [`axum`]: https://crates.io/crates/axum
+[`chronos-ts`]: https://crates.io/crates/chronos-ts
+[`incremental-rs`]: https://crates.io/crates/incremental-rs
 
 ### Quickstart
 
@@ -168,6 +185,10 @@ cargo run --example portability --features "smartcore-backend onnx"
 cargo run --example operations --features "smartcore-backend onnx registry monitor serve"
 ```
 
+```bash
+cargo run --example specialized --features "timeseries incremental"
+```
+
 ### Building on Windows
 
 The default toolchain is MSVC. If a Unix `link.exe` (e.g. from Git/Laragon) is
@@ -177,5 +198,5 @@ first, so the MSVC linker is found before the shadowing one.
 
 ## Roadmap
 
-Phases 0–5 are done. Phases 6–8 — time series & out-of-core, AutoML, and 1.0
-hardening — are laid out in the design brief.
+Phases 0–6 are done. Phases 7–8 — AutoML and 1.0 hardening — are laid out in
+the design brief.

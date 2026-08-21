@@ -37,6 +37,12 @@ axum = { version = "0.8", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
+chronos-ts = { version = "0.1", optional = true }
+incremental-rs = { version = "0.1", optional = true }
+# chronos-ts and incremental-rs pin ndarray 0.15, distinct from the 0.16 the
+# rest of the stack uses — the "two ndarray worlds" the design settles. Renamed
+# so both versions coexist; converted only at these adapters' edges.
+ndarray015 = { package = "ndarray", version = "0.15", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
@@ -131,7 +137,15 @@ full = [
     "registry",
     "monitor",
     "serve",
+    "timeseries",
+    "incremental",
 ]
+# Phase 6 · SPECIALIZED — same contract, different data shapes.
+# chronos-ts ARIMA / auto-ARIMA forecasting behind a Forecaster contract.
+timeseries = ["dep:chronos-ts", "dep:ndarray015"]
+
+# incremental-rs out-of-core partial_fit estimators behind a PartialFit contract.
+incremental = ["dep:incremental-rs", "dep:ndarray015"]
 
 [[example]]
 name = "spine"
@@ -156,3 +170,7 @@ required-features = ["smartcore-backend", "onnx"]
 [[example]]
 name = "operations"
 required-features = ["smartcore-backend", "onnx", "registry", "monitor", "serve"]
+
+[[example]]
+name = "specialized"
+required-features = ["timeseries", "incremental"]

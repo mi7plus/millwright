@@ -180,6 +180,31 @@ pub trait ProbaPredictor: Predictor {
     fn predict_proba(&self, frame: &Frame) -> Result<Frame>;
 }
 
+/// A time-series forecaster: fit on a one-dimensional series, then predict the
+/// next `steps` values. A *different data shape* than the row/target contract,
+/// so it has its own trait (as clustering does).
+pub trait Forecaster {
+    /// A short, stable name for diagnostics.
+    fn name(&self) -> &'static str;
+
+    /// Fit the forecaster on a historical series.
+    fn fit(&mut self, series: &[f64]) -> Result<()>;
+
+    /// Forecast the next `steps` values beyond the fitted history.
+    fn forecast(&self, steps: usize) -> Result<Vec<f64>>;
+}
+
+/// An out-of-core estimator: learn from a stream of batches that never fully
+/// load into memory. `partial_fit` updates the model with one batch at a time;
+/// the estimator predicts through the usual [`Predictor`] contract.
+pub trait PartialFit {
+    /// A short, stable name for diagnostics.
+    fn name(&self) -> &'static str;
+
+    /// Update the model with one batch of `(features, target)`.
+    fn partial_fit(&mut self, batch: &Dataset) -> Result<()>;
+}
+
 /// An unsupervised cluster model: fit on features alone (no target), then
 /// assign each row a cluster label.
 ///

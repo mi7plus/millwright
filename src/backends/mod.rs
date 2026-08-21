@@ -11,3 +11,8 @@ pub mod smartcore;
 
 #[cfg(feature = "linfa-backend")]
 pub mod linfa;
+
+#[cfg(feature = "timeseries")]
+pub mod chronos;
+#[cfg(feature = "incremental")]
+pub mod incremental;
