@@ -1,8 +1,10 @@
-//! The four traits — the whole contract.
+//! The trait contract.
 //!
 //! Everything composes because everything speaks these traits, and they are
 //! **object-safe**, so a [`Pipeline`](crate::pipeline::Pipeline) can hold a
 //! heterogeneous `Vec<Box<dyn Transformer>>` and a `Box<dyn Model>`.
+//!
+//! Four traits are the core — the whole supervised lifecycle rides on them:
 //!
 //! | trait | shape |
 //! |-------|-------|
@@ -10,6 +12,11 @@
 //! | [`Estimator`]   | `fit(&Dataset)` |
 //! | [`Predictor`]   | `predict(&Frame) -> Vec<f64>` |
 //! | [`ProbaPredictor`] | `predict_proba(&Frame) -> Frame` |
+//!
+//! A blanket [`Model`] ties `Estimator + Predictor` together. A few specialized
+//! traits cover the shapes that don't fit the supervised mould:
+//! [`Clusterer`] (unsupervised labels), [`Forecaster`] (time series),
+//! [`PartialFit`] (out-of-core), and [`Balancer`] (train-time resampling).
 
 use crate::error::{Error, Result};
 use crate::frame::{Dataset, Frame};

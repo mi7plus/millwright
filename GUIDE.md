@@ -75,6 +75,8 @@ millwright = { version = "0.1", features = ["full"] }
 | `hpo` | `BayesSearch` (TPE) over a `SearchSpace` |
 | `diagnostics` | OLS `Diagnostics`: VIF, residuals, Cook's distance |
 | `explain` | `Explainer` (SHAP) + `permutation_importance` |
+| `calibration` | `PlattScaling`, `IsotonicRegression`, `reliability_curve` |
+| `anomaly` | `Mahalanobis`, `KnnScore` outlier detectors |
 | `viz` | ROC / residual SVG figures |
 | `onnx` | `export_onnx` + `InferenceModel` (tract) |
 | `registry` | versioned model `Registry` |
@@ -257,6 +259,20 @@ let pipe = Pipeline::new()
 
 ---
 
+More transformers close the loop with the profiler's alerts: **`Winsorize`**
+(clip outliers to a quantile band), **`PowerTransform`** (Yeo-Johnson, de-skew),
+**`ColumnTransformer`** (apply a transformer to a named column subset, pass the
+rest through), and the supervised **`TargetEncoder`** (mean-encode
+high-cardinality categories). `Profile::suggest_pipeline()` wires the
+unsupervised ones in automatically when the data calls for them.
+
+```rust
+// different treatment per column group
+let pre = ColumnTransformer::new()
+    .add(PowerTransform::yeo_johnson(), ["income"])   // de-skew
+    .add(Winsorize::new(), ["age"]);                  // clip outliers
+```
+
 ## Model selection: cross-validation & search
 
 Search runs over the *whole pipeline*, cross-validated, tuning parameters by
@@ -381,6 +397,24 @@ viz::residuals_svg(reg.target(), &y_pred, "residuals.svg", (520, 420))?;
 ```
 
 ---
+
+**Calibrate** raw scores into probabilities that mean what they say (feature
+`calibration`) — e.g. a soft vote's class-vote shares:
+
+```rust
+let cal = PlattScaling::fit(&scores, &labels)?;   // or IsotonicRegression::fit(...)
+let probs = cal.transform(&scores);
+let curve = reliability_curve(&probs, &labels, 10);   // bins for a reliability diagram
+```
+
+**Detect outliers**, unsupervised (feature `anomaly`):
+
+```rust
+let mut m = Mahalanobis::new();     // or KnnScore::new(k)
+m.fit(&x)?;
+let scores = m.score(&x)?;          // higher = more anomalous
+let flags = m.is_outlier(&x, 3.0)?;
+```
 
 ## Portability: ONNX in and out
 

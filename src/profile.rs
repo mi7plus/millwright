@@ -29,7 +29,7 @@ use std::path::Path;
 use crate::error::{Error, Result};
 use crate::pipeline::Pipeline;
 use crate::table::{ColKind, Table};
-use crate::transform::{OneHotEncoder, SimpleImputer, StandardScaler};
+use crate::transform::{OneHotEncoder, PowerTransform, SimpleImputer, StandardScaler, Winsorize};
 
 // -------------------------------------------------------------------------
 // Typed result
@@ -314,6 +314,12 @@ impl Profile {
         if self.missingness.total > 0 {
             pipe = pipe.step("impute", SimpleImputer::median());
         }
+        if self.alerts.iter().any(|a| a.suggested == "Winsorize") {
+            pipe = pipe.step("winsorize", Winsorize::new());
+        }
+        if self.alerts.iter().any(|a| a.suggested == "PowerTransform") {
+            pipe = pipe.step("power", PowerTransform::yeo_johnson());
+        }
         let has_low_card_cat = self.columns.iter().any(|c| match c {
             ColumnProfile::Categorical(c) => c.distinct >= 2 && c.distinct <= 15,
             _ => false,
@@ -367,7 +373,7 @@ fn numeric_profile(name: &str, table: &Table) -> Result<NumericProfile> {
             outliers: 0,
         });
     }
-    present.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    present.sort_by(f64::total_cmp);
     let n = count as f64;
     let mean = present.iter().sum::<f64>() / n;
     let var = present.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
@@ -646,14 +652,14 @@ fn alerts(
                     out.push(Alert {
                         column: Some(np.name.clone()),
                         message: format!("skewed (skew {:.1})", np.skew),
-                        suggested: "StandardScaler",
+                        suggested: "PowerTransform",
                     });
                 }
                 if np.outliers as f64 / n > 0.01 {
                     out.push(Alert {
                         column: Some(np.name.clone()),
                         message: format!("{} IQR outliers", np.outliers),
-                        suggested: "StandardScaler",
+                        suggested: "Winsorize",
                     });
                 }
             }

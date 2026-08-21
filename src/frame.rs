@@ -9,6 +9,8 @@
 //! A [`Dataset`] is a `Frame` paired with a target column: what an
 //! [`Estimator`](crate::traits::Estimator) fits on.
 
+use std::path::Path;
+
 use crate::error::{Error, Result};
 
 /// A contiguous, row-major table of `f64` with named columns.
@@ -66,6 +68,41 @@ impl Frame {
             buf.extend(row);
         }
         Frame::new(buf, nrows, ncols, columns)
+    }
+
+    /// Read an all-numeric CSV (a header row, then `f64` rows) into a frame.
+    ///
+    /// Empty cells become `NaN` (ready for a [`SimpleImputer`]). This is the
+    /// dependency-free fast path for already-numeric data; for typed data
+    /// (strings, categories, dates) use [`Table`](crate::table::Table) behind
+    /// the `eda` feature.
+    ///
+    /// [`SimpleImputer`]: crate::transform::SimpleImputer
+    pub fn from_csv(path: impl AsRef<Path>) -> Result<Frame> {
+        let text = std::fs::read_to_string(path.as_ref())
+            .map_err(|e| Error::Backend(format!("read csv: {e}")))?;
+        let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+        let header = lines
+            .next()
+            .ok_or_else(|| Error::Schema("empty CSV".into()))?;
+        let columns: Vec<String> = header.split(',').map(|s| s.trim().to_string()).collect();
+        let ncols = columns.len();
+        let mut rows = Vec::new();
+        for (i, line) in lines.enumerate() {
+            let mut row = Vec::with_capacity(ncols);
+            for cell in line.split(',') {
+                let t = cell.trim();
+                row.push(if t.is_empty() {
+                    f64::NAN
+                } else {
+                    t.parse::<f64>().map_err(|_| {
+                        Error::Schema(format!("row {}: '{t}' is not a number", i + 2))
+                    })?
+                });
+            }
+            rows.push(row);
+        }
+        Frame::from_rows(rows, columns)
     }
 
     /// Number of rows.
@@ -220,6 +257,17 @@ mod tests {
         assert_eq!(f.get(1, 0), 3.0);
         assert_eq!(f.column(1), vec![2.0, 4.0]);
         assert_eq!(f.as_rows(), vec![vec![1.0, 2.0], vec![3.0, 4.0]]);
+    }
+
+    #[test]
+    fn reads_numeric_csv_with_blanks_as_nan() {
+        let path = std::env::temp_dir().join("mw_frame_from_csv.csv");
+        std::fs::write(&path, "a,b\n1,2\n3,\n").unwrap();
+        let f = Frame::from_csv(&path).unwrap();
+        assert_eq!(f.shape(), (2, 2));
+        assert_eq!(f.get(0, 1), 2.0);
+        assert!(f.get(1, 1).is_nan());
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

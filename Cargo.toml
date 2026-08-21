@@ -113,6 +113,14 @@ diagnostics = ["dep:regression-diagnostics", "dep:ndarray"]
 # SHAP values and permutation importance via shap-rs.
 explain = ["dep:shap-rs"]
 
+# Probability calibration (Platt / isotonic) + reliability curves — turn raw
+# classifier scores into calibrated probabilities. Core, no extra deps.
+calibration = []
+
+# Unsupervised outlier detection: Mahalanobis distance and a kNN distance score.
+# Core, no extra deps.
+anomaly = []
+
 # Report figures (ROC, calibration, residual) via plotters-statistical.
 viz = ["dep:plotters-statistical", "dep:plotters"]
 
@@ -157,6 +165,8 @@ full = [
     "hpo",
     "diagnostics",
     "explain",
+    "calibration",
+    "anomaly",
     "viz",
     "onnx",
     "registry",

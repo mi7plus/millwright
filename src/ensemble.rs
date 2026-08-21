@@ -13,6 +13,11 @@
 //! Classification vs. regression is inferred from the training target: an
 //! all-integral target is treated as class labels (aggregated by vote); any
 //! other target is treated as regression (aggregated by mean).
+//!
+//! A soft vote's [`predict_proba`](Voting::predict_proba) returns *class-vote
+//! shares* — the fraction of members voting each class — not calibrated
+//! probabilities. Run them through the `calibration` feature (Platt or isotonic)
+//! when you need probabilities that mean what they say.
 
 use crate::error::{Error, Result};
 use crate::frame::{Dataset, Frame};

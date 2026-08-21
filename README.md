@@ -4,8 +4,13 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
 
 - **Tutorial:** [`GUIDE.md`](GUIDE.md) — the hands-on walk through the whole
   lifecycle (also as a page: [`guide.html`](guide.html)).
-- **Design brief:** the *why*, at **<https://millwright-rs.dev/>** (also
-  [`millwright-design-brief.pdf`](millwright-design-brief.pdf)).
+- **Design brief:** the *why*, at **<https://millwright-rs.dev/>**.
+
+> *"Ten crates"* is the ecosystem this project assembles —
+> `plotters-statistical`, `model-selection-rs`, `imbalance-rs`,
+> `regression-diagnostics`, `hyperopt-rs`, `shap-rs`, `driftwatch`,
+> `onnx-export-rs`, `incremental-rs`, `chronos-ts` — riding the established
+> `smartcore` / `linfa` / `polars` stack.
 
 ## Status: Phases 0–8 — done
 
@@ -26,7 +31,9 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
 ### Phase 1 · prep & select — *a real, tunable, ensemble-ready workflow*
 
 - **Preprocessing** (`src/transform.rs`, core): `SimpleImputer`, `StandardScaler`,
-  `MinMaxScaler`, `OneHotEncoder`.
+  `MinMaxScaler`, `OneHotEncoder`, `Winsorize` (clip outliers), `PowerTransform`
+  (Yeo-Johnson), `ColumnTransformer` (per-subset transforms), and the supervised
+  `TargetEncoder`.
 - **Balancing** (`src/balance.rs`, via [`imbalance-rs`]): `Smote`,
   `RandomOverSampler` as train-time `Balancer`s — `Pipeline::balance(...)`,
   applied only during `fit`.
@@ -62,6 +69,11 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
 - **Report figures** (`src/viz.rs`, via [`plotters-statistical`], feature `viz`):
   `viz::roc_svg(...)` and `viz::residuals_svg(...)` render self-contained SVGs
   (pure-Rust backend, no system fonts).
+- **Calibration** (`src/calibration.rs`, core, feature `calibration`):
+  `PlattScaling` / `IsotonicRegression` turn raw scores into calibrated
+  probabilities, with `reliability_curve` for a reliability diagram.
+- **Anomaly detection** (`src/anomaly.rs`, core, feature `anomaly`):
+  `Mahalanobis` and `KnnScore` unsupervised outlier scorers.
 
 [`imbalance-rs`]: https://crates.io/crates/imbalance-rs
 [`model-selection-rs`]: https://crates.io/crates/model-selection-rs

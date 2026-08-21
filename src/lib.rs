@@ -2,20 +2,27 @@
 //!
 //! A unified ML framework for Rust — *ten crates, one lifecycle.*
 //!
-//! This is **Phase 0 · the spine**: the smallest thing that proves the design.
-//! It ships four pieces that everything later builds on:
+//! Millwright assembles proven Rust crates into one composable ML lifecycle —
+//! ingest and profile data, build and tune pipelines, evaluate and explain
+//! models, export to ONNX, and serve with drift monitoring — behind one data
+//! model, one trait contract, and feature-gated backends.
 //!
-//! - [`Frame`](frame::Frame) / [`Dataset`](frame::Dataset) — the boundary data
-//!   model the public API speaks.
-//! - the four traits — [`Transformer`](traits::Transformer),
-//!   [`Estimator`](traits::Estimator), [`Predictor`](traits::Predictor),
-//!   [`ProbaPredictor`](traits::ProbaPredictor).
-//! - the first backend — a [`smartcore`](backends::smartcore) adapter.
-//! - [`Pipeline`](pipeline::Pipeline) composition, with `"step__param"`
-//!   addressing.
+//! - [`Frame`](frame::Frame) / [`Dataset`](frame::Dataset) — the numeric
+//!   boundary type the public API speaks. `Table` (feature `eda`) is the typed,
+//!   polars-backed front that lowers into it.
+//! - the **core contract** — object-safe [`Transformer`](traits::Transformer),
+//!   [`Estimator`](traits::Estimator), [`Predictor`](traits::Predictor), and
+//!   [`ProbaPredictor`](traits::ProbaPredictor) — plus specialized
+//!   [`Clusterer`](traits::Clusterer), [`Forecaster`](traits::Forecaster),
+//!   [`PartialFit`](traits::PartialFit), and [`Balancer`](traits::Balancer) for
+//!   the shapes that need them.
+//! - [`Pipeline`](pipeline::Pipeline) composition with `"step__param"`
+//!   addressing, over feature-gated backends (smartcore, linfa, …).
 //!
 //! Everything is object-safe, so a pipeline holds a heterogeneous chain of
-//! boxed steps and a boxed model.
+//! boxed steps and a boxed model. Each capability is a cargo feature; `default`
+//! is a lean core and `full` lights up the whole lifecycle. See the
+//! [guide](https://millwright-rs.dev/guide.html) for a tour.
 //!
 //! ```no_run
 //! use millwright::prelude::*;
@@ -46,10 +53,14 @@ pub mod pipeline;
 pub mod traits;
 pub mod transform;
 
+#[cfg(feature = "anomaly")]
+pub mod anomaly;
 #[cfg(feature = "automl")]
 pub mod automl;
 #[cfg(feature = "preprocessing")]
 pub mod balance;
+#[cfg(feature = "calibration")]
+pub mod calibration;
 #[cfg(feature = "diagnostics")]
 pub mod diagnostics;
 #[cfg(feature = "ensemble")]
@@ -92,7 +103,8 @@ pub mod prelude {
         ProbaPredictor, Transformer,
     };
     pub use crate::transform::{
-        ImputeStrategy, MinMaxScaler, OneHotEncoder, SimpleImputer, StandardScaler,
+        ColumnTransformer, ImputeStrategy, MinMaxScaler, OneHotEncoder, PowerTransform,
+        SimpleImputer, StandardScaler, TargetEncoder, Winsorize,
     };
 
     #[cfg(feature = "smartcore-backend")]
@@ -121,6 +133,14 @@ pub mod prelude {
 
     #[cfg(feature = "diagnostics")]
     pub use crate::diagnostics::Diagnostics;
+
+    #[cfg(feature = "calibration")]
+    pub use crate::calibration::{
+        reliability_curve, IsotonicRegression, PlattScaling, ReliabilityBin,
+    };
+
+    #[cfg(feature = "anomaly")]
+    pub use crate::anomaly::{KnnScore, Mahalanobis};
 
     #[cfg(feature = "eda")]
     pub use crate::profile::{Alert, ColumnProfile, Profile, TargetKind, TargetProfile};

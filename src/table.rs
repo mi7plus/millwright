@@ -148,6 +148,13 @@ impl Table {
         }
     }
 
+    /// The first `n` rows — a cheap preview for profiling a large file.
+    pub fn head(&self, n: usize) -> Table {
+        Table {
+            df: self.df.head(Some(n)),
+        }
+    }
+
     pub(crate) fn series(&self, name: &str) -> Result<&Series> {
         Ok(self
             .df
@@ -312,5 +319,12 @@ mod tests {
         let ds = sample().into_dataset("b").unwrap();
         assert_eq!(ds.features().shape(), (4, 2)); // n, c
         assert_eq!(ds.target(), &[1.0, 0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn head_previews_rows() {
+        let df = df!("x" => (0..100).map(|i| i as f64).collect::<Vec<f64>>()).unwrap();
+        let t = Table::from_polars(df);
+        assert_eq!(t.head(10).nrows(), 10);
     }
 }

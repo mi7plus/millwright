@@ -76,6 +76,8 @@ jobs:
           # Each feature added on top of default — the realistic install shape,
           # and enough to catch a feature that fails to compile in isolation.
           - { name: "eda", features: "--features eda" }
+          - { name: "calibration", features: "--features calibration" }
+          - { name: "anomaly", features: "--features anomaly" }
           - { name: "linfa", features: "--features linfa-backend" }
           - { name: "hpo", features: "--features hpo" }
           - { name: "diagnostics", features: "--features diagnostics" }

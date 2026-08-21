@@ -9,21 +9,26 @@
 //! ```python
 //! import millwright as mw
 //! pipe = mw.Pipeline()
+//! pipe.simple_imputer(strategy="median")
 //! pipe.standard_scaler()
-//! pipe.random_forest(n_trees=100, max_depth=8)
+//! pipe.random_forest(n_trees=100, max_depth=8)   # or .linear_regression()
 //! pipe.fit(rows, labels)          # rows: list[list[float]], labels: list[float]
 //! preds = pipe.predict(rows)      # -> list[float]
+//! metrics = pipe.evaluate(rows, labels)   # -> {"accuracy": ..., "f1": ...}
 //! ```
+
+use std::collections::HashMap;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use crate::backends::smartcore::RandomForest;
+use crate::backends::smartcore::{LinearRegression, RandomForest};
 use crate::error::Error;
+use crate::evaluate::Report;
 use crate::frame::{Dataset, Frame};
 use crate::pipeline::Pipeline as CorePipeline;
 use crate::traits::{Estimator, Predictor};
-use crate::transform::StandardScaler;
+use crate::transform::{MinMaxScaler, OneHotEncoder, SimpleImputer, StandardScaler};
 
 fn to_py_err(e: Error) -> PyErr {
     PyValueError::new_err(e.to_string())
@@ -62,9 +67,41 @@ impl PyPipeline {
     /// Add a standard-scaler preprocessing step.
     #[pyo3(signature = (name=None))]
     fn standard_scaler(&mut self, name: Option<String>) {
-        let step = name.unwrap_or_else(|| "scale".into());
         let pipe = std::mem::take(&mut self.inner);
-        self.inner = pipe.step(step, StandardScaler::new());
+        self.inner = pipe.step(
+            name.unwrap_or_else(|| "scale".into()),
+            StandardScaler::new(),
+        );
+    }
+
+    /// Add a min-max scaler preprocessing step.
+    #[pyo3(signature = (name=None))]
+    fn min_max_scaler(&mut self, name: Option<String>) {
+        let pipe = std::mem::take(&mut self.inner);
+        self.inner = pipe.step(name.unwrap_or_else(|| "scale".into()), MinMaxScaler::new());
+    }
+
+    /// Add a missing-value imputer. `strategy` is `"median"` (default) or `"mean"`.
+    #[pyo3(signature = (name=None, strategy=None))]
+    fn simple_imputer(&mut self, name: Option<String>, strategy: Option<String>) -> PyResult<()> {
+        let imputer = match strategy.as_deref().unwrap_or("median") {
+            "median" => SimpleImputer::median(),
+            "mean" => SimpleImputer::mean(),
+            other => return Err(PyValueError::new_err(format!("unknown strategy '{other}'"))),
+        };
+        let pipe = std::mem::take(&mut self.inner);
+        self.inner = pipe.step(name.unwrap_or_else(|| "impute".into()), imputer);
+        Ok(())
+    }
+
+    /// Add a one-hot encoder that infers low-cardinality integer columns.
+    #[pyo3(signature = (name=None))]
+    fn one_hot(&mut self, name: Option<String>) {
+        let pipe = std::mem::take(&mut self.inner);
+        self.inner = pipe.step(
+            name.unwrap_or_else(|| "encode".into()),
+            OneHotEncoder::infer(),
+        );
     }
 
     /// Set a random-forest estimator as the final step.
@@ -76,6 +113,13 @@ impl PyPipeline {
         }
         let pipe = std::mem::take(&mut self.inner);
         self.inner = pipe.estimator(name.unwrap_or_else(|| "rf".into()), rf);
+    }
+
+    /// Set an ordinary-least-squares regressor as the final step.
+    #[pyo3(signature = (name=None))]
+    fn linear_regression(&mut self, name: Option<String>) {
+        let pipe = std::mem::take(&mut self.inner);
+        self.inner = pipe.estimator(name.unwrap_or_else(|| "lr".into()), LinearRegression::new());
     }
 
     /// Fit the pipeline on rows of features and a target vector.
@@ -94,6 +138,19 @@ impl PyPipeline {
         }
         let frame = frame_from_rows(rows)?;
         self.inner.predict(&frame).map_err(to_py_err)
+    }
+
+    /// Predict on `rows` and score against `labels`, returning a metrics dict
+    /// (accuracy/precision/recall/f1 for classification, mae/mse/rmse/r2 for
+    /// regression — the task is inferred from the labels).
+    fn evaluate(&self, rows: Vec<Vec<f64>>, labels: Vec<f64>) -> PyResult<HashMap<String, f64>> {
+        if !self.fitted {
+            return Err(PyValueError::new_err("pipeline is not fitted"));
+        }
+        let frame = frame_from_rows(rows)?;
+        let preds = self.inner.predict(&frame).map_err(to_py_err)?;
+        let report = Report::new(&labels, &preds);
+        Ok(report.metrics().iter().cloned().collect())
     }
 
     /// The pipeline's step names, in order.
