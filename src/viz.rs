@@ -26,7 +26,9 @@ pub fn roc_svg(
     size: (u32, u32),
 ) -> Result<f64> {
     if y_true.len() != y_score.len() {
-        return Err(Error::Shape("roc_svg: y_true and y_score differ in length".into()));
+        return Err(Error::Shape(
+            "roc_svg: y_true and y_score differ in length".into(),
+        ));
     }
     let labels: Vec<bool> = y_true.iter().map(|v| *v >= 0.5).collect();
     let roc = RocCurve::from_scores(y_score, &labels).map_err(viz_err)?;
@@ -106,7 +108,11 @@ pub fn residuals_svg(
         ))
         .map_err(viz_err)?;
     chart
-        .draw_series(points.iter().map(|(x, r)| Circle::new((*x, *r), 3, BLUE.filled())))
+        .draw_series(
+            points
+                .iter()
+                .map(|(x, r)| Circle::new((*x, *r), 3, BLUE.filled())),
+        )
         .map_err(viz_err)?;
     root.present().map_err(viz_err)?;
     Ok(())

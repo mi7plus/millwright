@@ -60,12 +60,16 @@ pub mod explain;
 pub mod monitor;
 #[cfg(feature = "onnx")]
 pub mod onnx;
+#[cfg(feature = "eda")]
+pub mod profile;
 #[cfg(feature = "registry")]
 pub mod registry;
 #[cfg(feature = "model-selection")]
 pub mod selection;
 #[cfg(feature = "serve")]
 pub mod serve;
+#[cfg(feature = "eda")]
+pub mod table;
 #[cfg(feature = "viz")]
 pub mod viz;
 
@@ -80,8 +84,8 @@ pub use error::{Error, Result};
 /// The one import that brings the whole framework into scope.
 pub mod prelude {
     pub use crate::error::{Error, Result};
-    pub use crate::frame::{Dataset, Frame};
     pub use crate::evaluate::{Evaluate, Report, Task};
+    pub use crate::frame::{Dataset, Frame};
     pub use crate::pipeline::Pipeline;
     pub use crate::traits::{
         Balancer, Clusterer, Estimator, Forecaster, Model, ParamValue, PartialFit, Predictor,
@@ -117,6 +121,11 @@ pub mod prelude {
 
     #[cfg(feature = "diagnostics")]
     pub use crate::diagnostics::Diagnostics;
+
+    #[cfg(feature = "eda")]
+    pub use crate::profile::{Alert, ColumnProfile, Profile, TargetKind, TargetProfile};
+    #[cfg(feature = "eda")]
+    pub use crate::table::{ColKind, Table};
 
     #[cfg(feature = "explain")]
     pub use crate::explain::{permutation_importance, Explain, Explainer, Explanation};

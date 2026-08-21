@@ -32,9 +32,16 @@ fn main() -> Result<()> {
     for line in result.leaderboard().lines().take(6) {
         println!("  {line}");
     }
-    println!("winner : {}  (F1 = {:.3})", result.best_label(), result.best_score());
+    println!(
+        "winner : {}  (F1 = {:.3})",
+        result.best_label(),
+        result.best_score()
+    );
 
-    let probe = Frame::from_rows(vec![vec![0.2, 0.2], vec![9.3, 9.3]], vec!["a".into(), "b".into()])?;
+    let probe = Frame::from_rows(
+        vec![vec![0.2, 0.2], vec![9.3, 9.3]],
+        vec!["a".into(), "b".into()],
+    )?;
     println!("predictions : {:?}", result.predict(&probe)?);
 
     // The winner is deployable — unlike a TPOT object.

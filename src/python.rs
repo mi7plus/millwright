@@ -98,7 +98,11 @@ impl PyPipeline {
 
     /// The pipeline's step names, in order.
     fn steps(&self) -> Vec<String> {
-        self.inner.step_names().into_iter().map(String::from).collect()
+        self.inner
+            .step_names()
+            .into_iter()
+            .map(String::from)
+            .collect()
     }
 }
 

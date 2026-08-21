@@ -66,7 +66,9 @@ impl Forecaster for AutoArima {
 
     fn fit(&mut self, series: &[f64]) -> Result<()> {
         if series.len() < 3 {
-            return Err(Error::Shape("AutoArima needs at least 3 observations".into()));
+            return Err(Error::Shape(
+                "AutoArima needs at least 3 observations".into(),
+            ));
         }
         let data = Array1::from(series.to_vec());
         let opts = AutoArimaOptions {
@@ -100,7 +102,9 @@ mod tests {
     #[test]
     fn forecasts_a_linear_trend_upward() {
         // A clear upward trend; the forecast should continue rising.
-        let series: Vec<f64> = (0..40).map(|i| 10.0 + i as f64 + (i % 3) as f64 * 0.3).collect();
+        let series: Vec<f64> = (0..40)
+            .map(|i| 10.0 + i as f64 + (i % 3) as f64 * 0.3)
+            .collect();
         let mut model = AutoArima::new().max_p(2).max_q(2);
         model.fit(&series).unwrap();
         let fc = model.forecast(4).unwrap();

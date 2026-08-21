@@ -1,0 +1,571 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Millwright · Guide</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#EEF1F3; --surface:#FFFFFF; --surface-2:#F5F8F9; --surface-3:#E9EEF1;
+    --ink:#16191C; --ink-soft:#556069; --ink-faint:#8894A0;
+    --line:#DCE3E8; --line-soft:#E7ECEF;
+    --oxide:#BC4A1E; --oxide-tint:#F6E6DE; --oxide-ink:#94380F;
+    --patina:#2C8272; --patina-tint:#DCEEEA;
+    --steel:#3E5566;
+    --code-bg:#1A2024; --code-ink:#D7E0E6; --code-key:#E4703F; --code-str:#7CB8A6; --code-com:#6E7C86; --code-fn:#9DB8CC;
+    --font-sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --font-mono:ui-monospace,"JetBrains Mono","Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+    --measure:68ch;
+    --radius:10px;
+    --shadow:0 1px 2px rgba(20,30,40,.05),0 6px 20px -12px rgba(20,30,40,.18);
+  }
+  :root:not([data-theme="light"]){
+    @media (prefers-color-scheme:dark){
+      --bg:#13171A; --surface:#1A2024; --surface-2:#20272C; --surface-3:#161C20;
+      --ink:#E7ECEF; --ink-soft:#9DA8B0; --ink-faint:#6C7882;
+      --line:#2A333A; --line-soft:#232B31;
+      --oxide:#E4703F; --oxide-tint:#2A1C15; --oxide-ink:#F0906A;
+      --patina:#54B7A1; --patina-tint:#132723;
+      --steel:#87A2B6;
+      --code-bg:#10151A; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px -16px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#13171A; --surface:#1A2024; --surface-2:#20272C; --surface-3:#161C20;
+    --ink:#E7ECEF; --ink-soft:#9DA8B0; --ink-faint:#6C7882;
+    --line:#2A333A; --line-soft:#232B31;
+    --oxide:#E4703F; --oxide-tint:#2A1C15; --oxide-ink:#F0906A;
+    --patina:#54B7A1; --patina-tint:#132723;
+    --steel:#87A2B6;
+    --code-bg:#10151A; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px -16px rgba(0,0,0,.6);
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%; scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--font-sans); font-size:17px; line-height:1.65;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:0 24px}
+  .col{max-width:var(--measure)}
+
+  h1,h2,h3{line-height:1.15; text-wrap:balance; margin:0; letter-spacing:-.012em}
+  h2{font-size:clamp(1.5rem,1.1rem + 1.5vw,2rem); font-weight:650; margin-bottom:.5rem}
+  h3{font-size:1.12rem; font-weight:650; margin:1.4rem 0 .3rem}
+  p{margin:0 0 1rem; max-width:var(--measure)}
+  a{color:var(--oxide-ink); text-underline-offset:2px; text-decoration-thickness:1px}
+  strong{font-weight:650}
+  .eyebrow{
+    font-family:var(--font-mono); font-size:.72rem; font-weight:600;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--oxide);
+    display:inline-flex; align-items:center; gap:.5rem;
+  }
+  .eyebrow::before{content:""; width:26px; height:1px; background:var(--oxide); opacity:.6}
+  .mono{font-family:var(--font-mono)}
+  .muted{color:var(--ink-soft)}
+  .tiny{font-size:.86rem; color:var(--ink-soft)}
+
+  header.top{
+    position:sticky; top:0; z-index:20; background:color-mix(in srgb,var(--bg) 86%,transparent);
+    -webkit-backdrop-filter:saturate(1.4) blur(8px); backdrop-filter:saturate(1.4) blur(8px);
+    border-bottom:1px solid var(--line);
+  }
+  .top .wrap{display:flex; align-items:center; justify-content:space-between; height:56px}
+  .brand{display:flex; align-items:baseline; gap:.6rem; font-family:var(--font-mono); font-weight:700; letter-spacing:-.02em}
+  .brand a{color:inherit; text-decoration:none}
+  .brand .mark{color:var(--oxide); font-size:1.15rem}
+  .brand .ver{font-size:.72rem; color:var(--ink-faint); font-weight:500; letter-spacing:.05em}
+  .top nav{display:flex; gap:.95rem; font-family:var(--font-mono); font-size:.74rem; letter-spacing:.03em}
+  .top nav a{color:var(--ink-soft); text-decoration:none}
+  .top nav a:hover{color:var(--oxide-ink)}
+  .top nav a.repo{color:var(--oxide); font-weight:600}
+  @media(max-width:680px){.top nav{display:none}}
+
+  .hero{padding:72px 0 32px}
+  .hero h1{font-size:clamp(2.3rem,1.6rem + 3vw,3.6rem); font-weight:700; letter-spacing:-.03em}
+  .hero .sub{margin-top:.35rem; font-family:var(--font-mono); font-size:.86rem; letter-spacing:.02em; color:var(--patina)}
+  .hero .lede{margin-top:1.4rem; max-width:62ch; font-size:1.22rem; color:var(--ink); line-height:1.5}
+  .hero .lede b{color:var(--oxide-ink); font-weight:650}
+
+  section{padding:38px 0; border-top:1px solid var(--line-soft)}
+  section > .wrap > .head{margin-bottom:1.3rem}
+  .head .col{max-width:62ch}
+
+  pre{
+    background:var(--code-bg); color:var(--code-ink); border-radius:var(--radius);
+    padding:18px 20px; overflow-x:auto; font-family:var(--font-mono); font-size:.84rem; line-height:1.7;
+    border:1px solid color-mix(in srgb,var(--code-ink) 12%,transparent); margin:0 0 1rem;
+  }
+  pre .k{color:var(--code-key)} pre .s{color:var(--code-str)} pre .c{color:var(--code-com)} pre .f{color:var(--code-fn)} pre .d{color:var(--ink-faint)}
+  code.inl{font-family:var(--font-mono); font-size:.88em; background:var(--surface-3); padding:.08em .38em; border-radius:5px; color:var(--oxide-ink)}
+
+  .tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius); margin-bottom:1rem}
+  table{border-collapse:collapse; width:100%; font-size:.9rem; min-width:520px}
+  th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--line-soft); vertical-align:top}
+  thead th{font-family:var(--font-mono); font-size:.7rem; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-faint); font-weight:600; background:var(--surface-2)}
+  tbody tr:last-child td{border-bottom:0}
+  td .feat{font-family:var(--font-mono); color:var(--oxide); font-size:.86rem}
+  tr.core td{background:var(--oxide-tint)}
+  .badge{font-family:var(--font-mono); font-size:.62rem; letter-spacing:.06em; text-transform:uppercase; padding:.12rem .4rem; border-radius:5px; background:var(--patina-tint); color:var(--patina); margin-left:.4rem; vertical-align:middle}
+
+  ul.clean{list-style:none; margin:.2rem 0 1rem; padding:0; display:flex; flex-direction:column; gap:.5rem; max-width:var(--measure)}
+  ul.clean li{position:relative; padding-left:1.2rem; font-size:.95rem; color:var(--ink-soft); line-height:1.5}
+  ul.clean li::before{content:""; position:absolute; left:0; top:.62em; width:6px; height:6px; border-radius:1px; background:var(--oxide)}
+  ul.clean li b{color:var(--ink); font-weight:600}
+
+  /* ---- guide-specific ---- */
+  .toc{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:.6rem}
+  @media(max-width:760px){.toc{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:460px){.toc{grid-template-columns:1fr}}
+  .toc a{
+    display:flex; gap:.55rem; align-items:baseline; text-decoration:none; color:var(--ink);
+    background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:9px 12px;
+    font-size:.9rem; box-shadow:var(--shadow);
+  }
+  .toc a:hover{border-color:var(--oxide)}
+  .toc a .num{font-family:var(--font-mono); font-size:.72rem; color:var(--oxide); font-weight:600}
+  .eyebrow.n::before{width:16px}
+  .callout{
+    background:var(--surface-2); border:1px solid var(--line); border-left:3px solid var(--patina);
+    border-radius:8px; padding:12px 15px; margin:0 0 1rem; font-size:.92rem; color:var(--ink-soft); max-width:var(--measure);
+  }
+  .callout b{color:var(--ink)}
+  .run{font-family:var(--font-mono); font-size:.78rem; color:var(--patina); margin:-.4rem 0 1rem}
+
+  footer{padding:40px 0 60px; border-top:1px solid var(--line-soft); color:var(--ink-faint); font-size:.85rem}
+  footer .wrap{display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem}
+  footer .mono{font-family:var(--font-mono)}
+  ::selection{background:var(--oxide); color:#fff}
+  :focus-visible{outline:2px solid var(--oxide); outline-offset:2px; border-radius:3px}
+</style>
+</head><body><header class="top">
+  <div class="wrap">
+    <div class="brand"><a href="index.html"><span class="mark">⚙</span>millwright</a><span class="ver">the&nbsp;guide</span></div>
+    <nav>
+      <a href="index.html">design brief</a>
+      <a href="#install">install</a>
+      <a href="#pipeline">pipelines</a>
+      <a href="#operate">operate</a>
+      <a href="#reproducible">reproducible</a>
+      <a class="repo" href="https://github.com/mi7plus/millwright">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="hero">
+      <div class="eyebrow">The guide</div>
+      <h1>Data in, monitored<br>service out.</h1>
+      <div class="sub">the hands-on tutorial · one data model, one contract, one pipeline</div>
+      <p class="lede">The <a href="index.html">design brief</a> is the <b>why</b>. This is the <b>how</b>: a run through the whole lifecycle — from a raw table of <code class="inl">f64</code> to a served, drift-monitored model — where every capability is a cargo feature over one crate. Every snippet below is real API, mirrored from the runnable programs in <code class="inl">examples/</code>.</p>
+    </div>
+  </div>
+
+  <!-- ===================== INSTALL ===================== -->
+  <section id="install">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 01 · install</div>
+        <h2>Pull only what you need.</h2>
+        <p class="muted"><code class="inl">default</code> is a lean, useful core — the smartcore backend, preprocessing, model selection, and ensembles. Everything past it is feature-gated: a serving binary never compiles SHAP; a notebook never compiles <code class="inl">axum</code>.</p>
+      </div>
+<pre><span class="c"># Cargo.toml — the default core</span>
+millwright = <span class="s">"0.1"</span>
+
+<span class="c"># just the spine</span>
+millwright = { version = <span class="s">"0.1"</span>, default-features = <span class="k">false</span>, features = [<span class="s">"smartcore-backend"</span>] }
+
+<span class="c"># the whole lifecycle</span>
+millwright = { version = <span class="s">"0.1"</span>, features = [<span class="s">"full"</span>] }</pre>
+      <p class="muted">One import brings the framework into scope, and the lifecycle stages map to features:</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Feature</th><th>Adds</th></tr></thead>
+          <tbody>
+            <tr class="core"><td><span class="feat">smartcore-backend</span><span class="badge">default</span></td><td>RandomForest · LinearRegression</td></tr>
+            <tr class="core"><td><span class="feat">preprocessing</span><span class="badge">default</span></td><td>Smote · RandomOverSampler (imputers/scalers/encoders are core)</td></tr>
+            <tr class="core"><td><span class="feat">model-selection</span><span class="badge">default</span></td><td>KFold · StratifiedKFold · GridSearch · RandomSearch · metrics</td></tr>
+            <tr class="core"><td><span class="feat">ensemble</span><span class="badge">default</span></td><td>Voting · Bagging · Stacking</td></tr>
+            <tr><td><span class="feat">eda</span></td><td>Table (polars CSV/Parquet ingest) · Profile (typed EDA)</td></tr>
+            <tr><td><span class="feat">linfa-backend</span></td><td>KMeans · GaussianMixture · Dbscan · Pca</td></tr>
+            <tr><td><span class="feat">hpo</span></td><td>BayesSearch (TPE) over a SearchSpace</td></tr>
+            <tr><td><span class="feat">diagnostics</span></td><td>OLS Diagnostics: VIF · residuals · Cook's distance</td></tr>
+            <tr><td><span class="feat">explain</span></td><td>Explainer (SHAP) · permutation_importance</td></tr>
+            <tr><td><span class="feat">viz</span></td><td>ROC / residual SVG figures</td></tr>
+            <tr><td><span class="feat">onnx</span></td><td>export_onnx · InferenceModel (tract)</td></tr>
+            <tr><td><span class="feat">registry</span></td><td>versioned model Registry</td></tr>
+            <tr><td><span class="feat">monitor</span></td><td>DriftMonitor (PSI)</td></tr>
+            <tr><td><span class="feat">serve</span></td><td>Server — POST /predict, GET /metrics</td></tr>
+            <tr><td><span class="feat">timeseries</span></td><td>AutoArima forecaster</td></tr>
+            <tr><td><span class="feat">incremental</span></td><td>IncrementalLinear (partial_fit)</td></tr>
+            <tr><td><span class="feat">automl</span></td><td>AutoML search</td></tr>
+            <tr><td><span class="feat">python</span></td><td>the <code class="inl">pip install millwright</code> package</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="eyebrow n" style="margin-top:1.2rem">On this page</div>
+      <div class="toc">
+        <a href="#ingest"><span class="num">▸</span><span>Ingest &amp; EDA</span></a>
+        <a href="#data"><span class="num">02</span><span>Frame &amp; Dataset</span></a>
+        <a href="#contract"><span class="num">03</span><span>The four traits</span></a>
+        <a href="#pipeline"><span class="num">04</span><span>Pipelines &amp; params</span></a>
+        <a href="#prep"><span class="num">05</span><span>Preprocess &amp; balance</span></a>
+        <a href="#select"><span class="num">06</span><span>CV &amp; search</span></a>
+        <a href="#ensemble"><span class="num">07</span><span>Ensembles</span></a>
+        <a href="#linfa"><span class="num">08</span><span>A second backend</span></a>
+        <a href="#insight"><span class="num">09</span><span>Evaluate &amp; explain</span></a>
+        <a href="#onnx"><span class="num">10</span><span>ONNX in &amp; out</span></a>
+        <a href="#operate"><span class="num">11</span><span>Registry, drift, serve</span></a>
+        <a href="#special"><span class="num">12</span><span>Time series &amp; streaming</span></a>
+        <a href="#automl"><span class="num">13</span><span>AutoML</span></a>
+        <a href="#python"><span class="num">14</span><span>Python</span></a>
+        <a href="#reproducible"><span class="num">15</span><span>Reproducibility</span></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== INGEST ===================== -->
+  <section id="ingest">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">The front of the lifecycle</div>
+        <h2>Ingest &amp; explore: <span class="mono">Table</span> and <span class="mono">Profile</span>.</h2>
+        <p class="muted">Behind the <code class="inl">eda</code> feature, a polars-backed <code class="inl">Table</code> reads real CSV/Parquet — strings, categories, dates, booleans, nulls — and a <code class="inl">Profile</code> reports it and drafts the preprocessing. <code class="inl">Frame</code> stays the numeric boundary; <code class="inl">Table</code> is the typed world <em>in front of</em> it.</p>
+      </div>
+<pre><span class="k">let</span> table = <span class="f">Table</span>::from_csv(<span class="s">"customers.csv"</span>)?;   <span class="c">// or ::from_parquet(…)</span>
+
+<span class="c">// a typed profile — not just an HTML blob</span>
+<span class="k">let</span> profile = <span class="f">Profile</span>::of_with_target(&amp;table, <span class="s">"churned"</span>)?;
+<span class="f">println!</span>(<span class="s">"{}"</span>, profile.summary());
+<span class="k">for</span> alert <span class="k">in</span> profile.alerts() {
+    <span class="f">println!</span>(<span class="s">"{alert}"</span>);   <span class="c">// "[city] categorical (3 levels) → OneHotEncoder"</span>
+}
+profile.to_html(<span class="s">"eda_report.html"</span>)?;             <span class="c">// a shareable report</span></pre>
+      <p class="muted">Because Millwright owns EDA <em>and</em> the pipeline, the profile drafts the starting preprocessing from its own findings — the loop scikit-learn can't close:</p>
+<pre><span class="c">// lower the typed table to the numeric world</span>
+<span class="k">let</span> train = table.into_dataset(<span class="s">"churned"</span>)?;   <span class="c">// categoricals encoded, nulls → NaN</span>
+
+<span class="c">// EDA drafts the pipeline; you just add the model</span>
+<span class="k">let mut</span> pipe = profile.suggest_pipeline()        <span class="c">// impute · encode · scale, from the alerts</span>
+    .estimator(<span class="s">"rf"</span>, <span class="f">RandomForest</span>::new());
+pipe.fit(&amp;train)?;</pre>
+      <p class="run">cargo run --example explore --features "eda smartcore-backend"</p>
+    </div>
+  </section>
+
+  <!-- ===================== DATA ===================== -->
+  <section id="data">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 02 · data</div>
+        <h2>The boundary type: <span class="mono">Frame</span> and <span class="mono">Dataset</span>.</h2>
+        <p class="muted">Everything the <em>public</em> API speaks is a <code class="inl">Frame</code>: a contiguous, row-major <code class="inl">f64</code> buffer plus a schema. It is what lets a linfa model and a smartcore <code class="inl">DenseMatrix</code> meet in one signature without your code ever naming their array versions — each backend converts <code class="inl">Frame</code> ⇄ its native type inside the adapter only. A <code class="inl">Dataset</code> pairs a frame with a target.</p>
+      </div>
+<pre><span class="k">use</span> millwright::prelude::*;
+
+<span class="k">let</span> x = <span class="f">Frame</span>::from_rows(
+    <span class="f">vec!</span>[<span class="f">vec!</span>[<span class="k">0.0</span>, <span class="k">0.1</span>], <span class="f">vec!</span>[<span class="k">0.4</span>, <span class="k">0.2</span>], <span class="f">vec!</span>[<span class="k">9.0</span>, <span class="k">9.1</span>], <span class="f">vec!</span>[<span class="k">9.4</span>, <span class="k">8.7</span>]],
+    <span class="f">vec!</span>[<span class="s">"a"</span>.into(), <span class="s">"b"</span>.into()],
+)?;
+<span class="k">assert_eq!</span>(x.shape(), (<span class="k">4</span>, <span class="k">2</span>));        <span class="c">// (rows, cols)</span>
+
+<span class="k">let</span> train = <span class="f">Dataset</span>::new(x.clone(), <span class="f">vec!</span>[<span class="k">0.0</span>, <span class="k">0.0</span>, <span class="k">1.0</span>, <span class="k">1.0</span>])?;
+<span class="k">let</span> _features = train.features();  <span class="c">// &Frame</span>
+<span class="k">let</span> _target   = train.target();    <span class="c">// &[f64]</span></pre>
+      <p class="tiny">The task — classification vs. regression — is inferred from the target: an all-integral target is class labels, anything else is regression.</p>
+    </div>
+  </section>
+
+  <!-- ===================== CONTRACT ===================== -->
+  <section id="contract">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 03 · the contract</div>
+        <h2>Four object-safe traits.</h2>
+        <p class="muted">The whole core is four traits. Object-safe means a <code class="inl">Pipeline</code> can hold a heterogeneous <code class="inl">Vec&lt;Box&lt;dyn …&gt;&gt;</code> — everything composes because everything speaks the same contract.</p>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Trait</th><th>Method</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><span class="feat">Transformer</span></td><td>fit(&amp;mut, &amp;Frame) → transform(&amp;Frame)</td><td>learn column stats, reshape features</td></tr>
+            <tr><td><span class="feat">Estimator</span></td><td>fit(&amp;mut, &amp;Dataset)</td><td>learn a model from features + target</td></tr>
+            <tr><td><span class="feat">Predictor</span></td><td>predict(&amp;Frame) → Vec&lt;f64&gt;</td><td>one prediction per row</td></tr>
+            <tr><td><span class="feat">ProbaPredictor</span></td><td>predict_proba(&amp;Frame) → Frame</td><td>class probabilities</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted">A blanket <code class="inl">Model</code> ties <code class="inl">Estimator + Predictor</code> together; a blanket <code class="inl">Evaluate</code> gives every predictor a <code class="inl">.evaluate(&amp;test)</code>. You rarely name these — you compose the types that implement them.</p>
+    </div>
+  </section>
+
+  <!-- ===================== PIPELINE ===================== -->
+  <section id="pipeline">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 04 · compose</div>
+        <h2>Pipelines: compose, then tune by path.</h2>
+        <p class="muted">A <code class="inl">Pipeline</code> is named transformer steps plus one final estimator, as a single object that is itself a <code class="inl">Model</code>. Steps are addressable by name, so you tune a parameter deep in the chain by path — the scikit-learn <code class="inl">"step__param"</code> convention.</p>
+      </div>
+<pre><span class="k">let mut</span> pipe = <span class="f">Pipeline</span>::new()
+    .step(<span class="s">"scale"</span>, <span class="f">StandardScaler</span>::new())
+    .estimator(<span class="s">"rf"</span>, <span class="f">RandomForest</span>::new());
+
+pipe.set_param(<span class="s">"rf__n_trees"</span>, <span class="f">ParamValue</span>::Int(<span class="k">50</span>))?;   <span class="c">// tune by path</span>
+pipe.set_param(<span class="s">"rf__max_depth"</span>, <span class="f">ParamValue</span>::Int(<span class="k">4</span>))?;
+
+pipe.fit(&amp;train)?;                <span class="c">// fit transforms, then the estimator</span>
+<span class="k">let</span> preds = pipe.predict(&amp;x)?;   <span class="c">// replays fitted transforms, then the model</span></pre>
+      <p class="run">cargo run --example spine</p>
+      <p class="tiny">That path addressing is exactly what lets a <em>search</em> reach any parameter anywhere in the chain. Pipelines nest, so a pipeline can be a step in another.</p>
+    </div>
+  </section>
+
+  <!-- ===================== PREP ===================== -->
+  <section id="prep">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 05 · prepare</div>
+        <h2>Preprocess &amp; balance.</h2>
+        <p class="muted">The core transformers need no extra dependencies. <em>Balancers</em> (feature <code class="inl">preprocessing</code>) are train-time only — they resample during <code class="inl">fit</code> and are skipped at predict time, so they never distort inference.</p>
+      </div>
+<pre><span class="k">let</span> pipe = <span class="f">Pipeline</span>::new()
+    .step(<span class="s">"impute"</span>, <span class="f">SimpleImputer</span>::median())   <span class="c">// or ::mean() / ::constant(0.0)</span>
+    .step(<span class="s">"scale"</span>,  <span class="f">StandardScaler</span>::new())      <span class="c">// or MinMaxScaler::new()</span>
+    .step(<span class="s">"encode"</span>, <span class="f">OneHotEncoder</span>::infer())      <span class="c">// or ::columns(["city"])</span>
+    .balance(<span class="f">Smote</span>::new().k_neighbors(<span class="k">3</span>).random_state(<span class="k">0</span>))  <span class="c">// train-time only</span>
+    .estimator(<span class="s">"rf"</span>, <span class="f">RandomForest</span>::new());</pre>
+    </div>
+  </section>
+
+  <!-- ===================== SELECT ===================== -->
+  <section id="select">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 06 · select</div>
+        <h2>Cross-validate &amp; search — over the whole pipeline.</h2>
+        <p class="muted">Search runs over the entire pipeline, cross-validated, tuning by path. <code class="inl">RandomSearch</code> swaps the grid for random draws; with <code class="inl">hpo</code>, <code class="inl">BayesSearch</code> runs TPE and returns the <em>same</em> <code class="inl">SearchResult</code> — one API, three strategies.</p>
+      </div>
+<pre><span class="k">use</span> millwright::grid;
+
+<span class="k">let</span> search = <span class="f">GridSearch</span>::new(pipe, <span class="f">grid!</span> { <span class="s">"rf__max_depth"</span> =&gt; [<span class="k">2</span>, <span class="k">4</span>, <span class="k">8</span>] })
+    .cv(<span class="f">StratifiedKFold</span>::new(<span class="k">4</span>))
+    .scoring(<span class="f">Metric</span>::F1)
+    .fit(&amp;train)?;
+
+<span class="k">for</span> (params, score) <span class="k">in</span> search.leaderboard() {
+    <span class="f">println!</span>(<span class="s">"  {score:.3}  {params:?}"</span>);
+}
+<span class="f">println!</span>(<span class="s">"best F1 = {:.3}"</span>, search.best_score());
+<span class="k">let</span> preds = search.predict(&amp;probe)?;   <span class="c">// the refit best model</span></pre>
+      <p class="run">cargo run --example workflow · cargo run --example backends --features "linfa-backend hpo"</p>
+    </div>
+  </section>
+
+  <!-- ===================== ENSEMBLE ===================== -->
+  <section id="ensemble">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 07 · combine</div>
+        <h2>Ensembles — even across backends.</h2>
+        <p class="muted">Because every model is a <code class="inl">Predictor</code>, combining models is just another <code class="inl">Predictor</code> that holds several — no new machinery, and it works across backends. An ensemble <em>is</em> an <code class="inl">Estimator</code>, so you can search a member straight through it.</p>
+      </div>
+<pre><span class="c">// soft (mean-probability) vote across two forests</span>
+<span class="k">let mut</span> vote = <span class="f">Voting</span>::soft()
+    .add(<span class="s">"rf_shallow"</span>, <span class="f">RandomForest</span>::new().max_depth(<span class="k">2</span>))
+    .add(<span class="s">"rf_deep"</span>,    <span class="f">RandomForest</span>::new().max_depth(<span class="k">8</span>));
+vote.fit(&amp;train)?;
+
+<span class="c">// stacking: a meta-learner on leak-free out-of-fold base predictions</span>
+<span class="k">let mut</span> stack = <span class="f">Stacking</span>::meta(<span class="f">RandomForest</span>::new().n_trees(<span class="k">50</span>))
+    .base(<span class="s">"rf"</span>,  <span class="f">RandomForest</span>::new().n_trees(<span class="k">30</span>))
+    .base(<span class="s">"rf2"</span>, <span class="f">RandomForest</span>::new().max_depth(<span class="k">3</span>))
+    .cv(<span class="f">StratifiedKFold</span>::new(<span class="k">4</span>));   <span class="c">// folds from the CV engine → leak-free</span>
+stack.fit(&amp;train)?;</pre>
+    </div>
+  </section>
+
+  <!-- ===================== LINFA ===================== -->
+  <section id="linfa">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 08 · a second backend</div>
+        <h2>linfa — through the same <span class="mono">Frame</span>.</h2>
+        <p class="muted">The <code class="inl">linfa-backend</code> feature adds unsupervised models through the same boundary type — the proof that the two-<code class="inl">ndarray</code>-worlds problem is settled by design. Clusterers implement a <code class="inl">Clusterer</code> contract; <code class="inl">Pca</code> is a <code class="inl">Transformer</code>.</p>
+      </div>
+<pre><span class="k">let mut</span> km = <span class="f">KMeans</span>::new(<span class="k">2</span>);
+km.fit(&amp;x)?;
+<span class="f">println!</span>(<span class="s">"k-means labels: {:?}"</span>, km.predict(&amp;x)?);
+
+<span class="k">let</span> dbscan = <span class="f">Dbscan</span>::new(<span class="k">3</span>).tolerance(<span class="k">1.0</span>);
+<span class="f">println!</span>(<span class="s">"dbscan: {:?}"</span>, dbscan.fit_predict(&amp;x)?);
+
+<span class="k">let mut</span> pca = <span class="f">Pca</span>::new(<span class="k">1</span>);
+<span class="k">let</span> reduced = pca.fit_transform(&amp;x)?;   <span class="c">// a Frame with fewer columns</span></pre>
+    </div>
+  </section>
+
+  <!-- ===================== INSIGHT ===================== -->
+  <section id="insight">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 09 · insight</div>
+        <h2>Evaluate, diagnose, explain, visualize.</h2>
+        <p class="muted">Any predictor scores itself on a labelled set (core). <code class="inl">explain</code> adds SHAP and permutation importance; <code class="inl">diagnostics</code> adds OLS VIF/residuals/influence; <code class="inl">viz</code> renders self-contained SVGs.</p>
+      </div>
+<pre><span class="k">let mut</span> rf = <span class="f">RandomForest</span>::new().n_trees(<span class="k">60</span>);
+rf.fit(&amp;train)?;
+<span class="f">print!</span>(<span class="s">"{}"</span>, rf.evaluate(&amp;test)?);   <span class="c">// accuracy / precision / recall / F1</span>
+
+<span class="c">// explain (feature = "explain")</span>
+<span class="k">let</span> shap = rf.explain(&amp;<span class="f">Explainer</span>::kernel().nsamples(<span class="k">80</span>), test.features())?;
+<span class="k">let</span> perm = <span class="f">permutation_importance</span>(&amp;rf, &amp;test, <span class="k">8</span>, <span class="k">0</span>)?;
+
+<span class="c">// diagnostics (feature = "diagnostics") · viz (feature = "viz")</span>
+<span class="k">let</span> diag = <span class="f">Diagnostics</span>::of(&amp;reg)?;
+<span class="f">println!</span>(<span class="s">"R² = {:.4}, VIF = {:?}"</span>, diag.r_squared(), diag.vif());
+<span class="k">let</span> auc = viz::roc_svg(test.target(), &amp;scores, <span class="s">"roc.svg"</span>, (<span class="k">520</span>, <span class="k">420</span>))?;</pre>
+      <p class="run">cargo run --example insight --features "diagnostics explain viz"</p>
+    </div>
+  </section>
+
+  <!-- ===================== ONNX ===================== -->
+  <section id="onnx">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 10 · portability</div>
+        <h2>ONNX in and out.</h2>
+        <p class="muted">With <code class="inl">onnx</code>, any model — or a whole pipeline — exports to one <code class="inl">.onnx</code> file. Whole-pipeline export folds leading affine scalers into the estimator's graph: raw features in, predictions out. <code class="inl">InferenceModel::load</code> runs any ONNX file back through tract.</p>
+      </div>
+<pre><span class="k">let mut</span> pipe = <span class="f">Pipeline</span>::new()
+    .step(<span class="s">"scale"</span>, <span class="f">StandardScaler</span>::new())
+    .estimator(<span class="s">"lr"</span>, <span class="f">LinearRegression</span>::new());
+pipe.fit(&amp;train)?;
+<span class="k">let</span> native = pipe.predict(&amp;probe)?;
+
+pipe.export_onnx(<span class="s">"pipeline.onnx"</span>)?;                 <span class="c">// scaler + model, one graph</span>
+<span class="k">let</span> model = <span class="f">InferenceModel</span>::load(<span class="s">"pipeline.onnx"</span>)?;
+<span class="k">let</span> via_onnx = model.predict(&amp;probe)?;              <span class="c">// matches `native`</span></pre>
+      <p class="tiny">Linear/affine/pipeline graphs run inside tract for a full round-trip. A random forest exports to a valid ONNX-ML tree-ensemble artifact for external runtimes (onnxruntime); tract implements NN ops, not the ONNX-ML tree ops.</p>
+    </div>
+  </section>
+
+  <!-- ===================== OPERATE ===================== -->
+  <section id="operate">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 11 · operate</div>
+        <h2>Registry, drift, serving.</h2>
+        <p class="muted">Where Millwright runs past where scikit-learn stops. The <code class="inl">registry</code> versions the ONNX artifact (content-addressed, with a reference distribution and movable tags); <code class="inl">monitor</code> watches the prediction stream for PSI drift; <code class="inl">serve</code> exposes a validated endpoint that feeds the monitor.</p>
+      </div>
+<pre><span class="k">let</span> reg = <span class="f">Registry</span>::local(<span class="s">"./models"</span>);
+<span class="k">let</span> v1 = reg.register(<span class="s">"demand"</span>, &amp;model, <span class="f">Metadata</span> {
+    metrics: <span class="f">vec!</span>[(<span class="s">"r2"</span>.into(), <span class="k">1.0</span>)],
+    reference: reference.clone(),   <span class="c">// the distribution drift watches against</span>
+    note: <span class="s">"baseline"</span>.into(),
+})?;
+reg.tag(<span class="s">"demand"</span>, &amp;v1.id, <span class="s">"prod"</span>)?;
+<span class="k">let</span> reverted = reg.rollback(<span class="s">"demand"</span>, <span class="s">"prod"</span>)?;   <span class="c">// revert in one line</span>
+
+<span class="c">// serve the prod artifact, watching for drift on every request</span>
+<span class="f">Server</span>::from_onnx(reg.onnx_path(<span class="s">"demand"</span>, <span class="s">"prod"</span>)?)?
+    .route(<span class="s">"/predict"</span>)
+    .with_monitor(<span class="f">DriftMonitor</span>::psi(&amp;reference)?)
+    .serve(<span class="s">"0.0.0.0:8080"</span>).<span class="k">await</span>?;         <span class="c">// POST /predict, GET /metrics</span></pre>
+      <p class="run">cargo run --example operations --features "onnx registry monitor serve"</p>
+    </div>
+  </section>
+
+  <!-- ===================== SPECIALIZED ===================== -->
+  <section id="special">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 12 · specialized shapes</div>
+        <h2>Time series &amp; out-of-core.</h2>
+        <p class="muted">Same contract, different data shapes — each gets its own trait. These two crates pin <code class="inl">ndarray 0.15</code> while the rest of the stack uses <code class="inl">0.16</code>; Cargo links both and converts only inside the adapters — the "two <code class="inl">ndarray</code> worlds," exercised for real.</p>
+      </div>
+<pre><span class="c">// time series (feature = "timeseries")</span>
+<span class="k">let mut</span> arima = <span class="f">AutoArima</span>::new().max_p(<span class="k">3</span>).max_q(<span class="k">3</span>);
+arima.fit(&amp;series)?;                  <span class="c">// &[f64]</span>
+<span class="k">let</span> forecast = arima.forecast(<span class="k">6</span>)?;   <span class="c">// six steps ahead</span>
+
+<span class="c">// out-of-core (feature = "incremental") — never holds the whole set in memory</span>
+<span class="k">let mut</span> model = <span class="f">IncrementalLinear</span>::with_rate(<span class="k">0.05</span>, <span class="k">0.0</span>);
+<span class="k">for</span> batch <span class="k">in</span> batches {
+    model.partial_fit(&amp;batch)?;      <span class="c">// one batch at a time</span>
+}</pre>
+      <p class="run">cargo run --example specialized --features "timeseries incremental"</p>
+    </div>
+  </section>
+
+  <!-- ===================== AUTOML ===================== -->
+  <section id="automl">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 13 · synthesis</div>
+        <h2>AutoML — the framework, pointed at itself.</h2>
+        <p class="muted">Profiling, preprocessing, CV, search, and ensembling are exactly what an AutoML engine needs — so <code class="inl">AutoML</code> is not a bolt-on, it is the framework orchestrating its own parts. Point it at data and a budget; get a leaderboard and the best <em>deployable</em> model.</p>
+      </div>
+<pre><span class="k">let</span> result = <span class="f">AutoML</span>::classifier()      <span class="c">// or ::regressor()</span>
+    .budget(<span class="f">Budget</span>::trials(<span class="k">20</span>))         <span class="c">// or Budget::minutes(10)</span>
+    .metric(<span class="f">Metric</span>::F1)
+    .cv(<span class="f">StratifiedKFold</span>::new(<span class="k">5</span>))
+    .seed(<span class="k">0</span>)
+    .fit(&amp;train)?;
+
+<span class="f">println!</span>(<span class="s">"{}"</span>, result.leaderboard());
+<span class="f">println!</span>(<span class="s">"winner: {} (F1 = {:.3})"</span>, result.best_label(), result.best_score());
+result.export_onnx(<span class="s">"model.onnx"</span>)?;   <span class="c">// deployable — unlike a TPOT object</span></pre>
+      <p class="run">cargo run --example automl --features "automl onnx"</p>
+    </div>
+  </section>
+
+  <!-- ===================== PYTHON ===================== -->
+  <section id="python">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 14 · interop</div>
+        <h2>Python — the same engine, a Pythonic API.</h2>
+        <p class="muted">The <code class="inl">python</code> feature ships a <code class="inl">pip install millwright</code> package: the same Rust engine behind a Pythonic API, built with maturin into an abi3 wheel.</p>
+      </div>
+<pre><span class="k">import</span> millwright <span class="k">as</span> mw
+
+pipe = mw.<span class="f">Pipeline</span>()
+pipe.standard_scaler()
+pipe.random_forest(n_trees=<span class="k">100</span>, max_depth=<span class="k">8</span>)
+
+pipe.fit(rows, labels)          <span class="c"># list[list[float]], list[float]</span>
+preds = pipe.predict(rows)      <span class="c"># runs the Rust engine</span></pre>
+      <p class="run">maturin develop --features python</p>
+      <p class="tiny"><code class="inl">python</code> is deliberately not part of <code class="inl">full</code>: pyo3's <code class="inl">extension-module</code> defers libpython symbols, so a plain <code class="inl">cargo test</code> can't link it. It is built and tested the way it ships — as a wheel.</p>
+    </div>
+  </section>
+
+  <!-- ===================== REPRODUCIBLE ===================== -->
+  <section id="reproducible">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Step 15 · bet on it</div>
+        <h2>Reproducibility: pins, lockfile, golden tests, CI.</h2>
+        <p class="muted">Millwright assembles young, single-author engine crates. That is its real risk, and Phase 8 owns it directly.</p>
+      </div>
+      <ul class="clean">
+        <li><b>Exact-version pins.</b> Every engine — the ecosystem crates plus the smartcore and linfa families — is pinned to an exact <code class="inl">=x.y.z</code>. A stray <code class="inl">cargo update</code> can never silently move a fragile engine under the stable trait contract. General infrastructure (serde, tokio, axum) stays on caret ranges to avoid forcing conflicts downstream.</li>
+        <li><b>Committed <code class="inl">Cargo.lock</code>.</b> The whole ~300-package graph is reproducible; CI builds with <code class="inl">--locked</code>, so a drifted lockfile is a hard error.</li>
+        <li><b>Golden-output tests.</b> <code class="inl">tests/golden.rs</code> locks the numeric behaviour of the engines on fixed inputs — exact for the deterministic paths, well-separated class labels for the stochastic ones. An engine bump that moves a number shows up as a diff.</li>
+        <li><b>Feature-matrix CI.</b> <code class="inl">fmt</code>, <code class="inl">clippy -D warnings</code>, docs, an MSRV build, and the tests across the whole matrix — from <code class="inl">--no-default-features</code> through each feature to <code class="inl">full</code>, plus Windows/macOS and a maturin wheel.</li>
+      </ul>
+<pre><span class="c"># run the whole suite yourself</span>
+cargo test --features full
+cargo test --locked --no-default-features --features smartcore-backend</pre>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="mono">⚙ millwright — the guide</span>
+    <span class="mono"><a href="index.html">design brief</a> · <a href="https://github.com/mi7plus/millwright">GitHub</a></span>
+  </div>
+</footer>
+</body></html>

@@ -26,12 +26,7 @@ impl Frame {
     /// Build a frame from a flat row-major buffer.
     ///
     /// Fails if `buf.len() != nrows * ncols` or if `columns.len() != ncols`.
-    pub fn new(
-        buf: Vec<f64>,
-        nrows: usize,
-        ncols: usize,
-        columns: Vec<String>,
-    ) -> Result<Self> {
+    pub fn new(buf: Vec<f64>, nrows: usize, ncols: usize, columns: Vec<String>) -> Result<Self> {
         if buf.len() != nrows * ncols {
             return Err(Error::Shape(format!(
                 "buffer has {} elements but shape {}x{} needs {}",
@@ -229,8 +224,7 @@ mod tests {
 
     #[test]
     fn dataset_checks_lengths() {
-        let f =
-            Frame::from_rows(vec![vec![1.0], vec![2.0]], vec!["a".into()]).unwrap();
+        let f = Frame::from_rows(vec![vec![1.0], vec![2.0]], vec!["a".into()]).unwrap();
         assert!(Dataset::new(f.clone(), vec![0.0]).is_err());
         assert!(Dataset::new(f, vec![0.0, 1.0]).is_ok());
     }

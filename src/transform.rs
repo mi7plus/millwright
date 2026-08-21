@@ -178,7 +178,8 @@ impl Transformer for MinMaxScaler {
 
     fn as_affine(&self) -> Option<(Vec<f64>, Vec<f64>)> {
         // transform(x) = (x - min) / range
-        self.fitted.then(|| (self.mins.clone(), self.ranges.clone()))
+        self.fitted
+            .then(|| (self.mins.clone(), self.ranges.clone()))
     }
 }
 
@@ -237,7 +238,11 @@ impl Transformer for SimpleImputer {
         let (_, p) = frame.shape();
         let mut fills = vec![0.0; p];
         for (c, fill) in fills.iter_mut().enumerate() {
-            let present: Vec<f64> = frame.column(c).into_iter().filter(|v| !v.is_nan()).collect();
+            let present: Vec<f64> = frame
+                .column(c)
+                .into_iter()
+                .filter(|v| !v.is_nan())
+                .collect();
             *fill = match self.strategy {
                 ImputeStrategy::Constant(v) => v,
                 ImputeStrategy::Mean => {
@@ -426,11 +431,7 @@ mod tests {
 
     #[test]
     fn standardizes_to_zero_mean_unit_std() {
-        let f = Frame::from_rows(
-            vec![vec![1.0], vec![2.0], vec![3.0]],
-            vec!["x".into()],
-        )
-        .unwrap();
+        let f = Frame::from_rows(vec![vec![1.0], vec![2.0], vec![3.0]], vec!["x".into()]).unwrap();
         let mut s = StandardScaler::new();
         let out = s.fit_transform(&f).unwrap();
         let col = out.column(0);
@@ -449,11 +450,8 @@ mod tests {
 
     #[test]
     fn minmax_maps_to_unit_interval() {
-        let f = Frame::from_rows(
-            vec![vec![10.0], vec![20.0], vec![30.0]],
-            vec!["x".into()],
-        )
-        .unwrap();
+        let f =
+            Frame::from_rows(vec![vec![10.0], vec![20.0], vec![30.0]], vec!["x".into()]).unwrap();
         let mut s = MinMaxScaler::new();
         let out = s.fit_transform(&f).unwrap();
         assert_eq!(out.column(0), vec![0.0, 0.5, 1.0]);
@@ -463,7 +461,12 @@ mod tests {
     fn imputer_fills_mean_and_median() {
         let nan = f64::NAN;
         let f = Frame::from_rows(
-            vec![vec![1.0, 1.0], vec![nan, 2.0], vec![3.0, nan], vec![5.0, 4.0]],
+            vec![
+                vec![1.0, 1.0],
+                vec![nan, 2.0],
+                vec![3.0, nan],
+                vec![5.0, 4.0],
+            ],
             vec!["a".into(), "b".into()],
         )
         .unwrap();
@@ -479,7 +482,12 @@ mod tests {
     #[test]
     fn onehot_expands_selected_column() {
         let f = Frame::from_rows(
-            vec![vec![0.0, 5.0], vec![2.0, 6.0], vec![1.0, 7.0], vec![0.0, 8.0]],
+            vec![
+                vec![0.0, 5.0],
+                vec![2.0, 6.0],
+                vec![1.0, 7.0],
+                vec![0.0, 8.0],
+            ],
             vec!["cat".into(), "num".into()],
         )
         .unwrap();
@@ -488,7 +496,12 @@ mod tests {
         // cat has categories {0,1,2} -> 3 indicator cols + passthrough num = 4
         assert_eq!(
             out.columns(),
-            &["cat=0".to_string(), "cat=1".into(), "cat=2".into(), "num".into()]
+            &[
+                "cat=0".to_string(),
+                "cat=1".into(),
+                "cat=2".into(),
+                "num".into()
+            ]
         );
         assert_eq!(out.row(0), &[1.0, 0.0, 0.0, 5.0]); // cat=0
         assert_eq!(out.row(1), &[0.0, 0.0, 1.0, 6.0]); // cat=2

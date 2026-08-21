@@ -1,7 +1,7 @@
 //! Regression diagnostics — OLS residual tests, influence, and `summary()`.
 //!
 //! Adapts [`regression-diagnostics`](https://docs.rs/regression-diagnostics)
-//! behind the framework's [`Frame`]. [`Diagnostics::of`] fits an ordinary
+//! behind the framework's [`Frame`](crate::frame::Frame). [`Diagnostics::of`] fits an ordinary
 //! least-squares model (with intercept) to a labelled dataset and exposes the
 //! full statistical summary — R², per-coefficient VIF, Durbin–Watson, and the
 //! Jarque–Bera / Breusch–Pagan / White tests — plus residuals and influence.
@@ -84,9 +84,7 @@ mod tests {
     #[test]
     fn recovers_a_linear_relationship() {
         // y = 2*x1 + 3 (x2 is noise-free but uncorrelated)
-        let rows: Vec<Vec<f64>> = (0..20)
-            .map(|i| vec![i as f64, (i % 3) as f64])
-            .collect();
+        let rows: Vec<Vec<f64>> = (0..20).map(|i| vec![i as f64, (i % 3) as f64]).collect();
         let y: Vec<f64> = rows.iter().map(|r| 2.0 * r[0] + 3.0).collect();
         let ds = Dataset::new(
             Frame::from_rows(rows, vec!["x1".into(), "x2".into()]).unwrap(),

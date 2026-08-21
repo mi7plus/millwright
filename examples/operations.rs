@@ -12,10 +12,7 @@ fn main() -> Result<()> {
     // A simple regression model (linear → ONNX runs in tract).
     let rows: Vec<Vec<f64>> = (0..40).map(|i| vec![i as f64, (i % 5) as f64]).collect();
     let y: Vec<f64> = rows.iter().map(|r| 2.0 * r[0] + 3.0 * r[1] + 1.0).collect();
-    let train = Dataset::new(
-        Frame::from_rows(rows, vec!["x1".into(), "x2".into()])?,
-        y,
-    )?;
+    let train = Dataset::new(Frame::from_rows(rows, vec!["x1".into(), "x2".into()])?, y)?;
     let mut model = LinearRegression::new();
     model.fit(&train)?;
     let reference = model.predict(train.features())?;
@@ -37,7 +34,12 @@ fn main() -> Result<()> {
     reg.tag("demand", &v1.id, "prod")?;
 
     // register a genuinely different second version, promote it, then roll back
-    let y2: Vec<f64> = train.features().as_rows().iter().map(|r| 2.0 * r[0] + 3.0 * r[1] + 5.0).collect();
+    let y2: Vec<f64> = train
+        .features()
+        .as_rows()
+        .iter()
+        .map(|r| 2.0 * r[0] + 3.0 * r[1] + 5.0)
+        .collect();
     let train2 = Dataset::new(train.features().clone(), y2)?;
     let mut model2 = LinearRegression::new();
     model2.fit(&train2)?;

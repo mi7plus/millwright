@@ -64,7 +64,10 @@ fn vote_proba(members: &[Vec<f64>], n_rows: usize, classes: &[i64]) -> Result<Fr
     let mut buf = Vec::with_capacity(n_rows * classes.len());
     for r in 0..n_rows {
         for &c in classes {
-            let count = members.iter().filter(|mem| mem[r].round() as i64 == c).count();
+            let count = members
+                .iter()
+                .filter(|mem| mem[r].round() as i64 == c)
+                .count();
             buf.push(count as f64 / m);
         }
     }
@@ -167,10 +170,9 @@ impl Predictor for Voting {
 
 impl ProbaPredictor for Voting {
     fn predict_proba(&self, frame: &Frame) -> Result<Frame> {
-        let classes = self
-            .classes
-            .as_ref()
-            .ok_or_else(|| Error::Pipeline("predict_proba requires a classification target".into()))?;
+        let classes = self.classes.as_ref().ok_or_else(|| {
+            Error::Pipeline("predict_proba requires a classification target".into())
+        })?;
         let preds = self.member_preds(frame)?;
         vote_proba(&preds, frame.nrows(), classes)
     }
@@ -426,7 +428,11 @@ mod tests {
             rows.push(vec![9.0 + i as f64 * 0.1, 9.0 + i as f64 * 0.1]);
             y.push(1.0);
         }
-        Dataset::new(Frame::from_rows(rows, vec!["a".into(), "b".into()]).unwrap(), y).unwrap()
+        Dataset::new(
+            Frame::from_rows(rows, vec!["a".into(), "b".into()]).unwrap(),
+            y,
+        )
+        .unwrap()
     }
 
     fn probe() -> Frame {
@@ -457,7 +463,9 @@ mod tests {
 
     #[test]
     fn bagging_predicts_clusters() {
-        let mut b = Bagging::of(RandomForest::new().n_trees(10)).n_estimators(5).seed(1);
+        let mut b = Bagging::of(RandomForest::new().n_trees(10))
+            .n_estimators(5)
+            .seed(1);
         b.fit(&two_class()).unwrap();
         assert_eq!(b.predict(&probe()).unwrap(), vec![0.0, 1.0]);
     }

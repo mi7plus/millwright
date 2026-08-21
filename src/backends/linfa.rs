@@ -289,7 +289,10 @@ mod tests {
 
     #[test]
     fn dbscan_finds_two_clusters() {
-        let labels = Dbscan::new(3).tolerance(1.0).fit_predict(&two_blobs()).unwrap();
+        let labels = Dbscan::new(3)
+            .tolerance(1.0)
+            .fit_predict(&two_blobs())
+            .unwrap();
         assert_eq!(labels[0], labels[7]);
         assert_ne!(labels[0], labels[8]);
     }

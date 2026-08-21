@@ -1,6 +1,6 @@
 [package]
 name = "millwright"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.80"
 description = "A unified ML framework for Rust — proven Rust crates, assembled into one machine."
@@ -15,30 +15,48 @@ categories = ["science", "algorithms"]
 # `cdylib` for the Python extension module (maturin); `rlib` for Rust consumers.
 crate-type = ["cdylib", "rlib"]
 
+# ---------------------------------------------------------------------------
+# Pinning policy (Phase 8 · HARDEN → 1.0)
+#
+# The *engines* — the young, single-author ecosystem crates plus the smartcore
+# and linfa families this framework assembles — are pinned to an EXACT version
+# (`=x.y.z`). They are the framework's real maturity risk; an exact pin means a
+# stray `cargo update` can never silently move a fragile engine underneath the
+# stable trait contract. Bumps are deliberate, one line, one commit.
+#
+# General-purpose infrastructure (serde, tokio, axum, pyo3, ndarray, plotters,
+# tract) stays on caret ranges: `=` pins on widely-shared crates force hard
+# version conflicts in downstream graphs. The committed Cargo.lock reproduces
+# their exact resolved versions for our own builds and CI.
+# ---------------------------------------------------------------------------
 [dependencies]
-smartcore = { version = "0.6", optional = true }
+# --- engines: exact pins ---
+smartcore = { version = "=0.6.10", optional = true }
+imbalance-rs = { version = "=0.5.0", optional = true }
+model-selection-rs = { version = "=0.1.0", optional = true, features = ["smartcore-metrics"] }
+linfa = { version = "=0.8.1", optional = true }
+linfa-clustering = { version = "=0.8.1", optional = true }
+linfa-reduction = { version = "=0.8.1", optional = true }
+linfa-nn = { version = "=0.8.1", optional = true }
+hyperopt-rs = { version = "=0.1.1", optional = true }
+regression-diagnostics = { version = "=0.2.0", optional = true }
+shap-rs = { version = "=0.1.0", optional = true }
+plotters-statistical = { version = "=0.2.0", optional = true }
+onnx-export-rs = { version = "=0.1.1", optional = true, features = ["smartcore-compat"] }
+driftwatch = { version = "=0.1.0", optional = true }
+chronos-ts = { version = "=0.1.0", optional = true }
+incremental-rs = { version = "=0.1.2", optional = true }
+polars = { version = "=0.55.2", default-features = false, features = ["csv", "parquet", "dtype-categorical", "dtype-datetime", "temporal", "is_in"], optional = true }
+
+# --- general infrastructure: caret ranges, reproduced via Cargo.lock ---
 pyo3 = { version = "0.24", features = ["extension-module", "abi3-py39"], optional = true }
 ndarray = { version = "0.16", optional = true }
-imbalance-rs = { version = "0.5", optional = true }
-model-selection-rs = { version = "0.1", optional = true, features = ["smartcore-metrics"] }
-linfa = { version = "0.8", optional = true }
-linfa-clustering = { version = "0.8", optional = true }
-linfa-reduction = { version = "0.8", optional = true }
-linfa-nn = { version = "0.8", optional = true }
-hyperopt-rs = { version = "0.1", optional = true }
-regression-diagnostics = { version = "0.2", optional = true }
-shap-rs = { version = "0.1", optional = true }
-plotters-statistical = { version = "0.2", optional = true }
 plotters = { version = "0.3.7", default-features = false, features = ["svg_backend", "all_series"], optional = true }
-onnx-export-rs = { version = "0.1", optional = true, features = ["smartcore-compat"] }
 tract-onnx = { version = "0.23", optional = true }
-driftwatch = { version = "0.1", optional = true }
 axum = { version = "0.8", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
-chronos-ts = { version = "0.1", optional = true }
-incremental-rs = { version = "0.1", optional = true }
 # chronos-ts and incremental-rs pin ndarray 0.15, distinct from the 0.16 the
 # rest of the stack uses — the "two ndarray worlds" the design settles. Renamed
 # so both versions coexist; converted only at these adapters' edges.
@@ -66,6 +84,12 @@ model-selection = ["dep:model-selection-rs", "dep:ndarray"]
 # Voting / bagging / stacking meta-estimators, composed over the four traits.
 # Leak-free stacking uses the model-selection CV engine when it is enabled.
 ensemble = []
+
+# Ingest & EDA — the front of the lifecycle. A polars-backed, dtype-aware
+# `Table` (CSV/Parquet in, real string/categorical/datetime/null columns) that
+# lowers to the numeric `Frame`, plus a `Profile` that reports the data and
+# drafts a starting preprocessing pipeline.
+eda = ["dep:polars"]
 
 # Phase 2 · BACKENDS & HPO.
 # The second backend: linfa clustering (k-means, GMM, DBSCAN) and PCA, proving
@@ -128,6 +152,7 @@ full = [
     "preprocessing",
     "model-selection",
     "ensemble",
+    "eda",
     "linfa-backend",
     "hpo",
     "diagnostics",
@@ -156,6 +181,10 @@ automl = ["model-selection", "ensemble", "smartcore-backend"]
 [[example]]
 name = "spine"
 required-features = ["smartcore-backend"]
+
+[[example]]
+name = "explore"
+required-features = ["eda", "smartcore-backend"]
 
 [[example]]
 name = "workflow"

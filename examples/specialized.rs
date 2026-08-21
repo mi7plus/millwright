@@ -17,7 +17,10 @@ fn main() -> Result<()> {
     println!("last 3 observed : {:?}", &series[series.len() - 3..]);
     println!(
         "6-step forecast : {:?}",
-        forecast.iter().map(|v| (v * 10.0).round() / 10.0).collect::<Vec<_>>()
+        forecast
+            .iter()
+            .map(|v| (v * 10.0).round() / 10.0)
+            .collect::<Vec<_>>()
     );
 
     // --- out-of-core: learn a line over streamed batches ---
@@ -31,8 +34,11 @@ fn main() -> Result<()> {
         model.partial_fit(&batch)?; // one batch at a time
     }
     let probe = Frame::from_rows(vec![vec![3.0], vec![10.0]], vec!["x".into()])?;
-    println!("streamed model  : f(3)={:.2}, f(10)={:.2}  (true 11, 39)",
-        model.predict(&probe)?[0], model.predict(&probe)?[1]);
+    println!(
+        "streamed model  : f(3)={:.2}, f(10)={:.2}  (true 11, 39)",
+        model.predict(&probe)?[0],
+        model.predict(&probe)?[1]
+    );
 
     println!("ok — the long tail of real workloads.");
     Ok(())

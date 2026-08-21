@@ -74,7 +74,8 @@ impl Balancer for Smote {
 
     fn fit_resample(&self, features: &Frame, target: &[f64]) -> Result<(Frame, Vec<f64>)> {
         let x = frame_to_array2(features)?;
-        let y: Array1<i64> = Array1::from(target.iter().map(|v| v.round() as i64).collect::<Vec<_>>());
+        let y: Array1<i64> =
+            Array1::from(target.iter().map(|v| v.round() as i64).collect::<Vec<_>>());
         let sampler = ImbSmote::new()
             .k_neighbors(self.k_neighbors)
             .random_state(self.seed);
@@ -106,7 +107,8 @@ impl Balancer for RandomOverSampler {
 
     fn fit_resample(&self, features: &Frame, target: &[f64]) -> Result<(Frame, Vec<f64>)> {
         let x = frame_to_array2(features)?;
-        let y: Array1<i64> = Array1::from(target.iter().map(|v| v.round() as i64).collect::<Vec<_>>());
+        let y: Array1<i64> =
+            Array1::from(target.iter().map(|v| v.round() as i64).collect::<Vec<_>>());
         let (xr, yr) = ImbRos::new()
             .fit_resample(&x, &y)
             .map_err(|e| Error::Backend(format!("RandomOverSampler failed: {e}")))?;
@@ -139,7 +141,11 @@ mod tests {
         .unwrap();
         let y = vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0];
 
-        let (xr, yr) = Smote::new().k_neighbors(1).random_state(7).fit_resample(&x, &y).unwrap();
+        let (xr, yr) = Smote::new()
+            .k_neighbors(1)
+            .random_state(7)
+            .fit_resample(&x, &y)
+            .unwrap();
         let zeros = yr.iter().filter(|&&v| v == 0.0).count();
         let ones = yr.iter().filter(|&&v| v == 1.0).count();
         assert_eq!(zeros, 6);

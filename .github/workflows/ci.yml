@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# One in-flight run per ref; a new push cancels the previous.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Every job builds against the committed Cargo.lock. `--locked` turns a stale
+  # or drifted lockfile into a hard error — the reproducibility guarantee that
+  # pairs with the exact-version engine pins in Cargo.toml.
+  CARGO_NET_RETRY: "3"
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: clippy (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - features: "--no-default-features"
+          - features: "" # default features
+          - features: "--features full"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --locked --all-targets ${{ matrix.features }}
+
+  docs:
+    name: doc
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # `full` is every Rust-facing feature (python is a cdylib, doc'd separately
+      # by maturin/pyo3), so this exercises the whole documented surface.
+      - run: cargo doc --locked --no-deps --features full
+
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The spine, minimal: no backend at all, then the smartcore spine.
+          - { name: "core-only", features: "--no-default-features" }
+          - { name: "spine", features: "--no-default-features --features smartcore-backend" }
+          # The default install.
+          - { name: "default", features: "" }
+          # Each feature added on top of default — the realistic install shape,
+          # and enough to catch a feature that fails to compile in isolation.
+          - { name: "eda", features: "--features eda" }
+          - { name: "linfa", features: "--features linfa-backend" }
+          - { name: "hpo", features: "--features hpo" }
+          - { name: "diagnostics", features: "--features diagnostics" }
+          - { name: "explain", features: "--features explain" }
+          - { name: "viz", features: "--features viz" }
+          - { name: "onnx", features: "--features onnx" }
+          - { name: "registry", features: "--features registry" }
+          - { name: "monitor", features: "--features monitor" }
+          - { name: "serve", features: "--features serve" }
+          - { name: "timeseries", features: "--features timeseries" }
+          - { name: "incremental", features: "--features incremental" }
+          - { name: "automl", features: "--features automl" }
+          # Everything at once — the superset build, including both ndarray worlds.
+          - { name: "full", features: "--features full" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+      - run: cargo test --locked ${{ matrix.features }}
+
+  # Cross-platform confidence on the default install, without multiplying the
+  # whole feature matrix across three operating systems.
+  os:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+
+  msrv:
+    name: msrv (1.80)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.80
+      - uses: Swatinem/rust-cache@v2
+      # The committed lockfile is what makes an old-toolchain build reproducible;
+      # `--locked` proves the pinned graph still compiles on the declared MSRV.
+      - run: cargo build --locked --features full
+
+  python:
+    name: python wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - uses: Swatinem/rust-cache@v2
+      # The `python` feature can't be linked by `cargo test` (pyo3's
+      # extension-module defers libpython), so it is built the way it ships:
+      # as an abi3 wheel via maturin, then smoke-imported.
+      - run: pip install maturin
+      - run: maturin build --locked --release
+      - run: pip install --find-links target/wheels millwright
+      - run: python -c "import millwright; print('millwright', getattr(millwright, '__version__', 'ok'))"

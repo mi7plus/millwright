@@ -2,7 +2,7 @@
 //!
 //! [`Server::from_onnx`] loads an ONNX model and exposes it as an axum service:
 //! `POST` the configured route with `{"rows": [[...]]}` and get back
-//! `{"predictions": [...]}`. With a [`DriftMonitor`](crate::monitor::DriftMonitor)
+//! `{"predictions": [...]}`. With a [`DriftMonitor`]
 //! attached, every request feeds the monitor and `GET /metrics` reports live PSI
 //! drift — a served model that watches its own request stream.
 //!
@@ -114,7 +114,10 @@ async fn predict_handler(
     }
     let ncols = req.rows[0].len();
     if ncols == 0 || req.rows.iter().any(|r| r.len() != ncols) {
-        return Err((StatusCode::BAD_REQUEST, "rows must be non-empty and rectangular".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "rows must be non-empty and rectangular".into(),
+        ));
     }
     let columns = (0..ncols).map(|i| format!("f{i}")).collect();
     let frame = Frame::from_rows(req.rows, columns)
@@ -183,7 +186,8 @@ mod tests {
         let path = linear_onnx();
         let app = Server::from_onnx(&path).unwrap().router();
 
-        let body = serde_json::to_vec(&serde_json::json!({ "rows": [[20.0, 1.0], [5.0, 2.0]] })).unwrap();
+        let body =
+            serde_json::to_vec(&serde_json::json!({ "rows": [[20.0, 1.0], [5.0, 2.0]] })).unwrap();
         let response = app
             .oneshot(
                 Request::builder()

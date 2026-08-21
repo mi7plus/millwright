@@ -37,8 +37,9 @@ impl DriftMonitor {
     /// Build a monitor from the reference (training) predictions, binned with
     /// the standard 10-bin PSI convention.
     pub fn psi(reference_predictions: &[f64]) -> Result<Self> {
-        let inner = PredictionDriftMonitor::new(reference_predictions, EqualWidthBinning::default())
-            .map_err(drift_err)?;
+        let inner =
+            PredictionDriftMonitor::new(reference_predictions, EqualWidthBinning::default())
+                .map_err(drift_err)?;
         Ok(DriftMonitor {
             inner,
             live: Mutex::new(Vec::new()),
@@ -47,7 +48,10 @@ impl DriftMonitor {
 
     /// Record a batch of live predictions.
     pub fn observe(&self, predictions: &[f64]) {
-        self.live.lock().expect("monitor lock").extend_from_slice(predictions);
+        self.live
+            .lock()
+            .expect("monitor lock")
+            .extend_from_slice(predictions);
     }
 
     /// Score the accumulated live predictions against the reference.

@@ -311,7 +311,9 @@ fn classifier_candidates() -> Vec<(String, Pipeline)> {
                     _ => pipe,
                 };
                 pipe = pipe.estimator("rf", rf);
-                let depth_s = depth.map(|d| d.to_string()).unwrap_or_else(|| "none".into());
+                let depth_s = depth
+                    .map(|d| d.to_string())
+                    .unwrap_or_else(|| "none".into());
                 out.push((format!("{scaler} | rf(trees={n}, depth={depth_s})"), pipe));
             }
         }
@@ -351,7 +353,11 @@ mod tests {
             rows.push(vec![9.0 + i as f64 * 0.1, 9.0 + i as f64 * 0.1]);
             y.push(1.0);
         }
-        Dataset::new(Frame::from_rows(rows, vec!["a".into(), "b".into()]).unwrap(), y).unwrap()
+        Dataset::new(
+            Frame::from_rows(rows, vec!["a".into(), "b".into()]).unwrap(),
+            y,
+        )
+        .unwrap()
     }
 
     #[test]

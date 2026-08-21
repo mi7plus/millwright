@@ -29,7 +29,11 @@ fn main() -> Result<()> {
     println!("=== diagnostics (OLS) ===");
     let reg = regression_data();
     let diag = Diagnostics::of(&reg)?;
-    println!("R^2 = {:.4}   max Cook's D = {:.4}", diag.r_squared(), diag.max_cooks_distance());
+    println!(
+        "R^2 = {:.4}   max Cook's D = {:.4}",
+        diag.r_squared(),
+        diag.max_cooks_distance()
+    );
     println!("VIF = {:?}", round2(diag.vif()));
 
     // 4 — report figures to SVG
@@ -55,7 +59,9 @@ fn main() -> Result<()> {
 }
 
 fn round2(v: Vec<(String, f64)>) -> Vec<(String, f64)> {
-    v.into_iter().map(|(k, x)| (k, (x * 100.0).round() / 100.0)).collect()
+    v.into_iter()
+        .map(|(k, x)| (k, (x * 100.0).round() / 100.0))
+        .collect()
 }
 
 fn classification_split() -> (Dataset, Dataset) {
@@ -89,5 +95,9 @@ fn regression_data() -> Dataset {
         .map(|i| vec![i as f64, (i as f64 * 0.7) % 5.0])
         .collect();
     let y: Vec<f64> = rows.iter().map(|r| 2.0 * r[0] - r[1] + 5.0).collect();
-    Dataset::new(Frame::from_rows(rows, vec!["x1".into(), "x2".into()]).unwrap(), y).unwrap()
+    Dataset::new(
+        Frame::from_rows(rows, vec!["x1".into(), "x2".into()]).unwrap(),
+        y,
+    )
+    .unwrap()
 }

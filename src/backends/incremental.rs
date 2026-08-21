@@ -7,7 +7,9 @@
 //! incremental-rs speaks `ndarray 0.15`; the conversion happens here, at the
 //! edge.
 
-use incremental_rs::{IncrementalLinearRegression, IncrementalSupervisedEstimator, LearningRateSchedule};
+use incremental_rs::{
+    IncrementalLinearRegression, IncrementalSupervisedEstimator, LearningRateSchedule,
+};
 use ndarray015::{Array1, Array2};
 
 use crate::error::{Error, Result};
@@ -36,7 +38,9 @@ impl IncrementalLinear {
     pub fn with_rate(learning_rate: f64, l2_penalty: f64) -> Self {
         IncrementalLinear {
             inner: IncrementalLinearRegression::new(
-                LearningRateSchedule::Constant { initial_rate: learning_rate },
+                LearningRateSchedule::Constant {
+                    initial_rate: learning_rate,
+                },
                 l2_penalty,
             ),
             fitted: false,

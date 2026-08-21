@@ -117,8 +117,11 @@ impl Registry {
         let mut log = self.versions(name)?;
         if !log.contains(&id) {
             log.push(id.clone());
-            fs::write(self.log_path(name), serde_json::to_vec(&log).map_err(io_err)?)
-                .map_err(io_err)?;
+            fs::write(
+                self.log_path(name),
+                serde_json::to_vec(&log).map_err(io_err)?,
+            )
+            .map_err(io_err)?;
         }
         Ok(version)
     }
@@ -135,9 +138,16 @@ impl Registry {
     pub fn resolve(&self, name: &str, reference: &str) -> Result<String> {
         let tag_path = self.tag_path(name, reference);
         if tag_path.exists() {
-            return Ok(fs::read_to_string(tag_path).map_err(io_err)?.trim().to_string());
+            return Ok(fs::read_to_string(tag_path)
+                .map_err(io_err)?
+                .trim()
+                .to_string());
         }
-        if self.name_dir(name).join(format!("{reference}.onnx")).exists() {
+        if self
+            .name_dir(name)
+            .join(format!("{reference}.onnx"))
+            .exists()
+        {
             return Ok(reference.to_string());
         }
         Err(Error::Backend(format!(
@@ -223,7 +233,9 @@ mod tests {
         let root = temp_root("roundtrip");
         let reg = Registry::local(&root);
 
-        let v1 = reg.register("churn", &fit_rf(10), Metadata::default()).unwrap();
+        let v1 = reg
+            .register("churn", &fit_rf(10), Metadata::default())
+            .unwrap();
         let v2 = reg
             .register(
                 "churn",
@@ -239,7 +251,10 @@ mod tests {
 
         reg.tag("churn", &v2.id, "prod").unwrap();
         assert_eq!(reg.resolve("churn", "prod").unwrap(), v2.id);
-        assert_eq!(reg.get("churn", "prod").unwrap().metadata.metrics[0].1, 0.97);
+        assert_eq!(
+            reg.get("churn", "prod").unwrap().metadata.metrics[0].1,
+            0.97
+        );
         assert!(reg.onnx_path("churn", "prod").unwrap().exists());
 
         // roll prod back to v1

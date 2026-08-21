@@ -105,7 +105,11 @@ fn regression_metrics(y_true: &[f64], y_pred: &[f64]) -> Vec<(String, f64)> {
         .zip(y_pred)
         .map(|(t, p)| (t - p).powi(2))
         .sum();
-    let r2 = if ss_tot > 0.0 { 1.0 - ss_res / ss_tot } else { f64::NAN };
+    let r2 = if ss_tot > 0.0 {
+        1.0 - ss_res / ss_tot
+    } else {
+        f64::NAN
+    };
     vec![
         ("mae".into(), mae),
         ("mse".into(), mse),

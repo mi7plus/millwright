@@ -1,7 +1,7 @@
 //! ONNX export and inference — *train once; run in Rust, Python, or any ONNX
 //! runtime.*
 //!
-//! [`ExportOnnx`] writes a trained model — or a whole [`Pipeline`] — to a single
+//! [`ExportOnnx`] writes a trained model — or a whole [`Pipeline`](crate::pipeline::Pipeline) — to a single
 //! `.onnx` file via [`onnx-export-rs`](https://docs.rs/onnx-export-rs).
 //! [`InferenceModel`] loads any ONNX file and runs it through
 //! [`tract`](https://docs.rs/tract-onnx), so the exported artifact round-trips
@@ -40,11 +40,7 @@ pub trait ExportOnnx {
 /// The estimator's input `X` becomes an internal tensor produced by the affine
 /// nodes; a fresh graph input `mw_input` feeds the transform. Used to splice a
 /// scaler in front of an estimator so the whole pipeline is one ONNX graph.
-pub(crate) fn prepend_affine(
-    proto: &mut ModelProto,
-    shift: &[f32],
-    scale: &[f32],
-) -> Result<()> {
+pub(crate) fn prepend_affine(proto: &mut ModelProto, shift: &[f32], scale: &[f32]) -> Result<()> {
     let graph = proto
         .graph
         .as_mut()
@@ -70,7 +66,12 @@ pub(crate) fn prepend_affine(
 
     // mw_input - mw_shift -> mw_centered ; mw_centered / mw_scale -> <est_input>
     let sub = make_node("Sub", ["mw_input", "mw_shift"], ["mw_centered"], Vec::new());
-    let div = make_node("Div", ["mw_centered", "mw_scale"], [est_input.as_str()], Vec::new());
+    let div = make_node(
+        "Div",
+        ["mw_centered", "mw_scale"],
+        [est_input.as_str()],
+        Vec::new(),
+    );
 
     graph.initializer.push(shift_t);
     graph.initializer.push(scale_t);
@@ -180,11 +181,8 @@ mod tests {
         }
         let cols = vec!["a".to_string(), "b".to_string()];
         let ds = Dataset::new(Frame::from_rows(rows, cols.clone()).unwrap(), y).unwrap();
-        let probe = Frame::from_rows(
-            vec![vec![0.3, 0.2], vec![9.2, 9.3], vec![0.1, 0.0]],
-            cols,
-        )
-        .unwrap();
+        let probe =
+            Frame::from_rows(vec![vec![0.3, 0.2], vec![9.2, 9.3], vec![0.1, 0.0]], cols).unwrap();
         (ds, probe)
     }
 

@@ -2,10 +2,12 @@
 
 A unified ML framework for Rust — *ten crates, one lifecycle.*
 
-The full design brief and guide live at **<https://millwright-rs.dev/>**
-(also [`millwright-design-brief.pdf`](millwright-design-brief.pdf)).
+- **Tutorial:** [`GUIDE.md`](GUIDE.md) — the hands-on walk through the whole
+  lifecycle (also as a page: [`guide.html`](guide.html)).
+- **Design brief:** the *why*, at **<https://millwright-rs.dev/>** (also
+  [`millwright-design-brief.pdf`](millwright-design-brief.pdf)).
 
-## Status: Phases 0–7 — done
+## Status: Phases 0–8 — done
 
 ### Phase 0 · the spine
 
@@ -158,6 +160,59 @@ result.export_onnx("model.onnx")?;   // deployable
 [`chronos-ts`]: https://crates.io/crates/chronos-ts
 [`incremental-rs`]: https://crates.io/crates/incremental-rs
 
+### Phase 8 · harden → 1.0 — *a framework you can bet on*
+
+Pin, prove, document — owning the one real risk of assembling young,
+single-author engine crates.
+
+- **Exact-version pins** (`Cargo.toml`): every engine — the ecosystem crates plus
+  the smartcore and linfa families — is pinned to an exact `=x.y.z`, so a stray
+  `cargo update` can't move a fragile engine under the stable trait contract.
+  General infrastructure (serde, tokio, axum, …) stays on caret ranges to avoid
+  forcing conflicts downstream.
+- **Committed `Cargo.lock`**: the whole ~300-package graph is reproducible; CI
+  builds with `--locked`.
+- **Golden-output tests** (`tests/golden.rs`): lock the numeric behaviour of the
+  engines on fixed inputs — exact for the deterministic paths (OLS, affine
+  transforms, metric formulas), well-separated class labels for the stochastic
+  ones. An engine bump that moves a number shows up as a diff.
+- **Feature-matrix CI** (`.github/workflows/ci.yml`): `fmt`, `clippy -D warnings`,
+  docs, an MSRV (1.80) build, and the test suite across the feature matrix — from
+  `--no-default-features` through each feature to `full`, plus Windows/macOS on
+  the default install and a maturin wheel for Python.
+- **The tutorial** ([`GUIDE.md`](GUIDE.md) + [`guide.html`](guide.html)): the
+  design brief's lifecycle, re-cast as a hands-on guide.
+
+### Ingest & EDA — *the lifecycle starts where the data does*
+
+The front of the lifecycle, behind the `eda` feature (via [`polars`]).
+
+- **`Table`** (`src/table.rs`): a dtype-aware, polars-backed table —
+  `Table::from_csv` / `from_parquet` read real string/categorical/datetime/null
+  columns. It *lowers* to the numeric world: `table.to_frame()` and
+  `table.into_dataset("target")` (categoricals label-encoded, nulls → `NaN`), so
+  `Frame` stays the numeric boundary everything else already speaks.
+- **`Profile`** (`src/profile.rs`): `Profile::of(&table)` returns a *typed* EDA —
+  overview, per-column numeric/categorical profiles, missingness, Pearson
+  correlations (high-|r| pairs flagged), IQR outliers, and target relationship
+  (class balance or feature-target correlation). It renders a self-contained
+  `to_html(path)` report, lists `alerts()` that name the fix, and — the loop
+  scikit-learn can't close — `suggest_pipeline()` drafts the preprocessing from
+  those findings; you just add the model.
+
+```rust
+let table = Table::from_csv("customers.csv")?;
+let profile = Profile::of_with_target(&table, "churned")?;
+profile.to_html("eda.html")?;
+
+let train = table.into_dataset("churned")?;
+let mut pipe = profile.suggest_pipeline()      // impute · encode · scale, from the alerts
+    .estimator("rf", RandomForest::new());
+pipe.fit(&train)?;
+```
+
+[`polars`]: https://crates.io/crates/polars
+
 ### Quickstart
 
 ```rust
@@ -183,6 +238,10 @@ Run the end-to-end examples:
 
 ```bash
 cargo run --example spine
+```
+
+```bash
+cargo run --example explore --features "eda smartcore-backend"
 ```
 
 ```bash
@@ -222,5 +281,6 @@ first, so the MSVC linker is found before the shadowing one.
 
 ## Roadmap
 
-Phases 0–7 are done. Phase 8 — 1.0 hardening (version pins, golden-output
-tests, feature-matrix CI) — is laid out in the design brief.
+Phases 0–8 are done — the full lifecycle plus 1.0 hardening (exact-version pins,
+a committed lockfile, golden-output tests, and a feature-matrix CI). The design
+brief lays out the arc; the tutorial ([`GUIDE.md`](GUIDE.md)) is the how.

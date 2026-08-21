@@ -2,7 +2,7 @@
 //!
 //! This module adapts [`model-selection-rs`](https://docs.rs/model-selection-rs)
 //! (the CV splitters and scorers) into the framework, then layers grid and
-//! random search over any [`Model`] — including a whole [`Pipeline`], tuned by
+//! random search over any [`Model`] — including a whole [`Pipeline`](crate::pipeline::Pipeline), tuned by
 //! `"step__param"` path.
 //!
 //! ```no_run
@@ -172,8 +172,13 @@ impl StratifiedKFold {
 
 impl CrossValidator for StratifiedKFold {
     fn splits(&self, dataset: &Dataset) -> Result<Vec<(Vec<usize>, Vec<usize>)>> {
-        let labels: Array1<i64> =
-            Array1::from(dataset.target().iter().map(|v| v.round() as i64).collect::<Vec<_>>());
+        let labels: Array1<i64> = Array1::from(
+            dataset
+                .target()
+                .iter()
+                .map(|v| v.round() as i64)
+                .collect::<Vec<_>>(),
+        );
         MsStratifiedKFold::new(self.k, &labels)
             .map_err(ms_err)?
             .split(labels.len())
@@ -196,7 +201,9 @@ pub fn cross_val_score(
 ) -> Result<f64> {
     let splits = cv.splits(dataset)?;
     if splits.is_empty() {
-        return Err(Error::Pipeline("cross-validation produced no splits".into()));
+        return Err(Error::Pipeline(
+            "cross-validation produced no splits".into(),
+        ));
     }
     let mut total = 0.0;
     for (train, test) in &splits {
@@ -344,7 +351,12 @@ fn run_search(
         let score = cross_val_score(configured.as_ref(), dataset, cv, metric)?;
         leaderboard.push((combo, score));
     }
-    finalize_search(template.as_ref(), leaderboard, metric.greater_is_better(), dataset)
+    finalize_search(
+        template.as_ref(),
+        leaderboard,
+        metric.greater_is_better(),
+        dataset,
+    )
 }
 
 /// Sort a leaderboard, pick the winner, and refit it on the full dataset.
@@ -391,7 +403,7 @@ pub struct GridSearch {
 }
 
 impl GridSearch {
-    /// Search `model` (often a [`Pipeline`]) over `grid`. Defaults: 5-fold CV,
+    /// Search `model` (often a [`Pipeline`](crate::pipeline::Pipeline)) over `grid`. Defaults: 5-fold CV,
     /// accuracy scoring — override with [`GridSearch::cv`] / [`GridSearch::scoring`].
     pub fn new(model: impl Model + 'static, grid: ParamGrid) -> Self {
         GridSearch {

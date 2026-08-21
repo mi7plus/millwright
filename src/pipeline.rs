@@ -67,9 +67,9 @@ impl Pipeline {
     /// The name before the first `__` selects the step; the remainder is the
     /// parameter passed on to that step (recursing for nested pipelines).
     pub fn set_param(&mut self, path: &str, value: ParamValue) -> Result<()> {
-        let (step, rest) = path.split_once("__").ok_or_else(|| {
-            Error::Param(format!("'{path}' is not a 'step__param' path"))
-        })?;
+        let (step, rest) = path
+            .split_once("__")
+            .ok_or_else(|| Error::Param(format!("'{path}' is not a 'step__param' path")))?;
         for (name, t) in &mut self.steps {
             if name == step {
                 return t.set_param(rest, value);
@@ -239,7 +239,9 @@ mod tests {
             .step("scale", StandardScaler::new())
             .estimator("mean", MeanBaseline::default());
         // known param on a real step
-        assert!(pipe.set_param("scale__with_mean", ParamValue::Bool(false)).is_ok());
+        assert!(pipe
+            .set_param("scale__with_mean", ParamValue::Bool(false))
+            .is_ok());
         // unknown step
         assert!(pipe.set_param("nope__x", ParamValue::Int(1)).is_err());
         // unknown param on a known step

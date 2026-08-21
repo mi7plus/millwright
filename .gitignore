@@ -1,5 +1,8 @@
 /target
-Cargo.lock
+
+# Cargo.lock IS committed (Phase 8): this framework assembles young, single-
+# author engine crates, so a reproducible dependency graph is a feature. See
+# the pinning policy in Cargo.toml.
 
 # IDE
 /.idea
