@@ -15,6 +15,11 @@ smartcore = { version = "0.6", optional = true }
 ndarray = { version = "0.16", optional = true }
 imbalance-rs = { version = "0.5", optional = true }
 model-selection-rs = { version = "0.1", optional = true, features = ["smartcore-metrics"] }
+linfa = { version = "0.8", optional = true }
+linfa-clustering = { version = "0.8", optional = true }
+linfa-reduction = { version = "0.8", optional = true }
+linfa-nn = { version = "0.8", optional = true }
+hyperopt-rs = { version = "0.1", optional = true }
 
 [features]
 # Phase 0 · THE SPINE — the smartcore backend is the first (and default) engine.
@@ -34,7 +39,29 @@ model-selection = ["dep:model-selection-rs", "dep:ndarray"]
 # Leak-free stacking uses the model-selection CV engine when it is enabled.
 ensemble = []
 
-full = ["smartcore-backend", "preprocessing", "model-selection", "ensemble"]
+# Phase 2 · BACKENDS & HPO.
+# The second backend: linfa clustering (k-means, GMM, DBSCAN) and PCA, proving
+# the Frame <-> ndarray boundary conversion for a whole other engine.
+linfa-backend = [
+    "dep:linfa",
+    "dep:linfa-clustering",
+    "dep:linfa-reduction",
+    "dep:linfa-nn",
+    "dep:ndarray",
+]
+
+# Bayesian / TPE hyperparameter search via hyperopt-rs, behind the same search
+# API as grid/random search (needs the model-selection CV engine).
+hpo = ["dep:hyperopt-rs", "model-selection"]
+
+full = [
+    "smartcore-backend",
+    "preprocessing",
+    "model-selection",
+    "ensemble",
+    "linfa-backend",
+    "hpo",
+]
 
 [[example]]
 name = "spine"
@@ -43,3 +70,7 @@ required-features = ["smartcore-backend"]
 [[example]]
 name = "workflow"
 required-features = ["smartcore-backend", "preprocessing", "model-selection", "ensemble"]
+
+[[example]]
+name = "backends"
+required-features = ["smartcore-backend", "linfa-backend", "hpo"]

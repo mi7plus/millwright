@@ -8,3 +8,6 @@
 
 #[cfg(feature = "smartcore-backend")]
 pub mod smartcore;
+
+#[cfg(feature = "linfa-backend")]
+pub mod linfa;

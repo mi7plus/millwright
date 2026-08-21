@@ -327,7 +327,7 @@ impl Predictor for SearchResult {
     }
 }
 
-// Shared evaluation: score every combo by CV, refit the winner on all data.
+// Shared evaluation: score every combo by CV, then finalize.
 fn run_search(
     template: Box<dyn Model>,
     combos: Vec<Vec<(String, ParamValue)>>,
@@ -335,9 +335,7 @@ fn run_search(
     metric: Metric,
     dataset: &Dataset,
 ) -> Result<SearchResult> {
-    let greater_is_better = metric.greater_is_better();
     let mut leaderboard: Vec<(Vec<(String, ParamValue)>, f64)> = Vec::with_capacity(combos.len());
-
     for combo in combos {
         let mut configured = template.clone();
         for (path, value) in &combo {
@@ -346,7 +344,17 @@ fn run_search(
         let score = cross_val_score(configured.as_ref(), dataset, cv, metric)?;
         leaderboard.push((combo, score));
     }
+    finalize_search(template.as_ref(), leaderboard, metric.greater_is_better(), dataset)
+}
 
+/// Sort a leaderboard, pick the winner, and refit it on the full dataset.
+/// Shared by grid, random, and (behind `hpo`) Bayesian search.
+fn finalize_search(
+    template: &dyn Model,
+    mut leaderboard: Vec<(Vec<(String, ParamValue)>, f64)>,
+    greater_is_better: bool,
+    dataset: &Dataset,
+) -> Result<SearchResult> {
     leaderboard.sort_by(|a, b| {
         if greater_is_better {
             b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
@@ -360,8 +368,7 @@ fn run_search(
         .cloned()
         .ok_or_else(|| Error::Pipeline("search evaluated no candidates".into()))?;
 
-    // Refit the winner on the full dataset.
-    let mut best_model = template.clone();
+    let mut best_model = template.clone_box();
     for (path, value) in &best_params {
         best_model.set_param(path, value.clone())?;
     }
@@ -472,6 +479,160 @@ impl RandomSearch {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Bayesian / TPE search (behind the `hpo` feature) — same search API
+// ---------------------------------------------------------------------------
+
+/// One parameter's distribution in a [`SearchSpace`].
+#[cfg(feature = "hpo")]
+#[derive(Clone, Debug)]
+enum Dist {
+    Int(i64, i64),
+    Float(f64, f64),
+    Choice(Vec<ParamValue>),
+}
+
+/// A continuous/discrete search space for [`BayesSearch`].
+///
+/// Unlike a [`ParamGrid`] (a fixed set of points), a space describes *ranges*
+/// the TPE sampler explores adaptively.
+#[cfg(feature = "hpo")]
+#[derive(Clone, Debug, Default)]
+pub struct SearchSpace {
+    params: Vec<(String, Dist)>,
+}
+
+#[cfg(feature = "hpo")]
+impl SearchSpace {
+    /// An empty space.
+    pub fn new() -> Self {
+        SearchSpace::default()
+    }
+
+    /// An integer parameter in `[low, high]` (inclusive).
+    pub fn int(mut self, path: impl Into<String>, low: i64, high: i64) -> Self {
+        self.params.push((path.into(), Dist::Int(low, high)));
+        self
+    }
+
+    /// A float parameter in `[low, high]`.
+    pub fn float(mut self, path: impl Into<String>, low: f64, high: f64) -> Self {
+        self.params.push((path.into(), Dist::Float(low, high)));
+        self
+    }
+
+    /// A categorical parameter chosen from `values`.
+    pub fn choice(mut self, path: impl Into<String>, values: Vec<ParamValue>) -> Self {
+        self.params.push((path.into(), Dist::Choice(values)));
+        self
+    }
+}
+
+/// Bayesian hyperparameter search via `hyperopt-rs`'s TPE sampler.
+///
+/// Returns the same [`SearchResult`] as [`GridSearch`] / [`RandomSearch`], so a
+/// tuned model flows into the rest of the lifecycle identically — only the
+/// search strategy differs.
+#[cfg(feature = "hpo")]
+pub struct BayesSearch {
+    model: Box<dyn Model>,
+    space: SearchSpace,
+    cv: Box<dyn CrossValidator>,
+    metric: Metric,
+    n_trials: usize,
+    seed: u64,
+}
+
+#[cfg(feature = "hpo")]
+impl BayesSearch {
+    /// TPE search over `space`. Defaults: 25 trials, 5-fold CV, accuracy, seed 0.
+    pub fn new(model: impl Model + 'static, space: SearchSpace) -> Self {
+        BayesSearch {
+            model: Box::new(model),
+            space,
+            cv: Box::new(KFold::new(5)),
+            metric: Metric::Accuracy,
+            n_trials: 25,
+            seed: 0,
+        }
+    }
+
+    /// Number of trials the sampler runs.
+    pub fn n_trials(mut self, n: usize) -> Self {
+        self.n_trials = n;
+        self
+    }
+
+    /// Seed the TPE sampler for reproducibility.
+    pub fn seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Set the cross-validation strategy.
+    pub fn cv(mut self, cv: impl CrossValidator + 'static) -> Self {
+        self.cv = Box::new(cv);
+        self
+    }
+
+    /// Set the scoring metric.
+    pub fn scoring(mut self, metric: Metric) -> Self {
+        self.metric = metric;
+        self
+    }
+
+    /// Run the search and refit the winner on the full dataset.
+    pub fn fit(self, dataset: &Dataset) -> Result<SearchResult> {
+        use hyperopt_rs::{Direction, StudyBuilder, TpeSampler};
+
+        let direction = if self.metric.greater_is_better() {
+            Direction::Maximize
+        } else {
+            Direction::Minimize
+        };
+        let study = StudyBuilder::new("millwright")
+            .direction(direction)
+            .sampler(TpeSampler::seeded(self.seed))
+            .build()
+            .map_err(|e| Error::Backend(format!("hyperopt study: {e}")))?;
+
+        let mut leaderboard: Vec<(Vec<(String, ParamValue)>, f64)> = Vec::new();
+        {
+            let objective = |ctx: &mut hyperopt_rs::TrialContext| -> hyperopt_rs::ObjectiveResult {
+                let mut combo = Vec::with_capacity(self.space.params.len());
+                for (path, dist) in &self.space.params {
+                    let value = match dist {
+                        Dist::Int(lo, hi) => ParamValue::Int(ctx.suggest_int(path, *lo, *hi)),
+                        Dist::Float(lo, hi) => ParamValue::Float(ctx.suggest_float(path, *lo, *hi)),
+                        Dist::Choice(choices) => {
+                            let idx = ctx.suggest_int(path, 0, (choices.len() - 1) as i64) as usize;
+                            choices[idx].clone()
+                        }
+                    };
+                    combo.push((path.clone(), value));
+                }
+                let mut m = self.model.clone();
+                for (p, v) in &combo {
+                    m.set_param(p, v.clone())?;
+                }
+                let score = cross_val_score(m.as_ref(), dataset, self.cv.as_ref(), self.metric)?;
+                leaderboard.push((combo, score));
+                Ok(score)
+            };
+            study
+                .optimize(objective, self.n_trials)
+                .map_err(|e| Error::Backend(format!("hyperopt optimize: {e}")))?;
+        }
+
+        finalize_search(
+            self.model.as_ref(),
+            leaderboard,
+            self.metric.greater_is_better(),
+            dataset,
+        )
+    }
+}
+
 #[cfg(all(test, feature = "smartcore-backend"))]
 mod tests {
     use super::*;
@@ -527,5 +688,27 @@ mod tests {
         .fit(&ds)
         .unwrap();
         assert_eq!(search.leaderboard().len(), 2);
+    }
+
+    #[cfg(feature = "hpo")]
+    #[test]
+    fn bayes_search_tunes_over_a_space() {
+        let ds = two_class_dataset();
+        let space = SearchSpace::new().int("max_depth", 1, 8);
+        let search = BayesSearch::new(RandomForest::new(), space)
+            .n_trials(6)
+            .seed(0)
+            .cv(StratifiedKFold::new(3))
+            .scoring(Metric::F1)
+            .fit(&ds)
+            .unwrap();
+        assert_eq!(search.leaderboard().len(), 6);
+        assert!(search.best_score() > 0.9, "F1 was {}", search.best_score());
+        let test = Frame::from_rows(
+            vec![vec![0.1, 0.1], vec![9.2, 9.2]],
+            vec!["a".into(), "b".into()],
+        )
+        .unwrap();
+        assert_eq!(search.predict(&test).unwrap(), vec![0.0, 1.0]);
     }
 }

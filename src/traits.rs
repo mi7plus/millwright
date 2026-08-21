@@ -160,6 +160,23 @@ pub trait ProbaPredictor: Predictor {
     fn predict_proba(&self, frame: &Frame) -> Result<Frame>;
 }
 
+/// An unsupervised cluster model: fit on features alone (no target), then
+/// assign each row a cluster label.
+///
+/// This is the contract for inductive clusterers (k-means, GMM) that can label
+/// unseen data. Transductive methods that only label their training data (e.g.
+/// DBSCAN) expose a `fit_predict` inherent method instead.
+pub trait Clusterer {
+    /// A short, stable name for diagnostics.
+    fn name(&self) -> &'static str;
+
+    /// Learn the clustering from the feature frame.
+    fn fit(&mut self, frame: &Frame) -> Result<()>;
+
+    /// Assign each row of `frame` a cluster label.
+    fn predict(&self, frame: &Frame) -> Result<Vec<f64>>;
+}
+
 /// A fittable, predicting model — the shape a pipeline's final step must have.
 ///
 /// Blanket-implemented for anything that is an [`Estimator`], a [`Predictor`],

@@ -5,7 +5,7 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
 See [`Millwright.html`](Millwright.html) / [`millwright-design-brief.pdf`](millwright-design-brief.pdf)
 for the full design brief.
 
-## Status: Phase 0 (spine) + Phase 1 (prep & select) — done
+## Status: Phases 0–2 — done
 
 ### Phase 0 · the spine
 
@@ -36,8 +36,20 @@ for the full design brief.
   leak-free `Stacking` riding the same CV engine — all `Model`s themselves, so
   they compose, tune, and nest.
 
+### Phase 2 · backends & HPO — *two backends, one contract*
+
+- **The second backend** (`src/backends/linfa.rs`, via [`linfa`], feature
+  `linfa-backend`): `KMeans`, `GaussianMixture`, `Dbscan` (as a new `Clusterer`
+  contract) and `Pca` (as a `Transformer`) — each converting `Frame → ndarray`
+  at the edge, proving the boundary conversion against a whole other engine.
+- **Bayesian search** (`src/selection.rs`, via [`hyperopt-rs`], feature `hpo`):
+  `BayesSearch` runs TPE search over a `SearchSpace` and returns the *same*
+  `SearchResult` as grid/random search — one search API, three strategies.
+
 [`imbalance-rs`]: https://crates.io/crates/imbalance-rs
 [`model-selection-rs`]: https://crates.io/crates/model-selection-rs
+[`linfa`]: https://crates.io/crates/linfa
+[`hyperopt-rs`]: https://crates.io/crates/hyperopt-rs
 
 ### Quickstart
 
@@ -70,6 +82,10 @@ cargo run --example spine
 cargo run --example workflow
 ```
 
+```bash
+cargo run --example backends --features "smartcore-backend linfa-backend hpo"
+```
+
 ### Building on Windows
 
 The default toolchain is MSVC. If a Unix `link.exe` (e.g. from Git/Laragon) is
@@ -79,7 +95,6 @@ first, so the MSVC linker is found before the shadowing one.
 
 ## Roadmap
 
-Phases 0 (spine) and 1 (prep & select) are done. Phases 2–8 — more backends &
-Bayesian HPO, diagnostics & explainability, ONNX & Python, serving & monitoring,
-time series & out-of-core, AutoML, and 1.0 hardening — are laid out in the design
-brief.
+Phases 0 (spine), 1 (prep & select), and 2 (backends & HPO) are done. Phases 3–8
+— diagnostics & explainability, ONNX & Python, serving & monitoring, time series
+& out-of-core, AutoML, and 1.0 hardening — are laid out in the design brief.

@@ -63,7 +63,7 @@ pub mod prelude {
     pub use crate::frame::{Dataset, Frame};
     pub use crate::pipeline::Pipeline;
     pub use crate::traits::{
-        Balancer, Estimator, Model, ParamValue, Predictor, ProbaPredictor, Transformer,
+        Balancer, Clusterer, Estimator, Model, ParamValue, Predictor, ProbaPredictor, Transformer,
     };
     pub use crate::transform::{
         ImputeStrategy, MinMaxScaler, OneHotEncoder, SimpleImputer, StandardScaler,
@@ -71,6 +71,9 @@ pub mod prelude {
 
     #[cfg(feature = "smartcore-backend")]
     pub use crate::backends::smartcore::{LinearRegression, RandomForest};
+
+    #[cfg(feature = "linfa-backend")]
+    pub use crate::backends::linfa::{Dbscan, GaussianMixture, KMeans, Pca};
 
     #[cfg(feature = "preprocessing")]
     pub use crate::balance::{RandomOverSampler, Smote};
@@ -80,6 +83,9 @@ pub mod prelude {
         CrossValidator, GridSearch, KFold, Metric, ParamGrid, RandomSearch, SearchResult,
         StratifiedKFold,
     };
+
+    #[cfg(feature = "hpo")]
+    pub use crate::selection::{BayesSearch, SearchSpace};
 
     #[cfg(feature = "ensemble")]
     pub use crate::ensemble::{Bagging, Voting, VotingKind};
