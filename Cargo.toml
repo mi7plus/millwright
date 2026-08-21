@@ -139,6 +139,7 @@ full = [
     "serve",
     "timeseries",
     "incremental",
+    "automl",
 ]
 # Phase 6 · SPECIALIZED — same contract, different data shapes.
 # chronos-ts ARIMA / auto-ARIMA forecasting behind a Forecaster contract.
@@ -146,6 +147,11 @@ timeseries = ["dep:chronos-ts", "dep:ndarray015"]
 
 # incremental-rs out-of-core partial_fit estimators behind a PartialFit contract.
 incremental = ["dep:incremental-rs", "dep:ndarray015"]
+
+# Phase 7 · SYNTHESIS — AutoML, the framework pointed at itself.
+# No new crate: it orchestrates model-selection, the ensemble core, and the
+# smartcore backend into a budgeted preprocessing × model × HPO search.
+automl = ["model-selection", "ensemble", "smartcore-backend"]
 
 [[example]]
 name = "spine"
@@ -174,3 +180,7 @@ required-features = ["smartcore-backend", "onnx", "registry", "monitor", "serve"
 [[example]]
 name = "specialized"
 required-features = ["timeseries", "incremental"]
+
+[[example]]
+name = "automl"
+required-features = ["smartcore-backend", "automl", "onnx"]

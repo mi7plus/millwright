@@ -5,7 +5,7 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
 The full design brief and guide live at **<https://millwright-rs.dev/>**
 (also [`millwright-design-brief.pdf`](millwright-design-brief.pdf)).
 
-## Status: Phases 0–6 — done
+## Status: Phases 0–7 — done
 
 ### Phase 0 · the spine
 
@@ -135,6 +135,26 @@ adapters — the "two ndarray worlds" the design settles, now exercised for real
 
 [`driftwatch`]: https://crates.io/crates/driftwatch
 [`axum`]: https://crates.io/crates/axum
+### Phase 7 · synthesis — *auto-sklearn, but the output actually deploys*
+
+- **AutoML** (`src/automl.rs`, feature `automl`): `AutoML::classifier()` /
+  `regressor()` searches preprocessing × model × hyperparameters under a
+  `Budget` (trials or minutes), auto-ensembles the top candidates, and returns a
+  ranked leaderboard plus the best fitted model. **No new crate** — it
+  orchestrates the model-selection, ensemble, and backend machinery already
+  built. A single-pipeline winner flows straight into `export_onnx`, so unlike a
+  TPOT object the result deploys.
+
+```rust
+let result = AutoML::classifier()
+    .budget(Budget::trials(40))
+    .metric(Metric::F1)
+    .cv(StratifiedKFold::new(5))
+    .fit(&train)?;
+println!("{}", result.leaderboard());
+result.export_onnx("model.onnx")?;   // deployable
+```
+
 [`chronos-ts`]: https://crates.io/crates/chronos-ts
 [`incremental-rs`]: https://crates.io/crates/incremental-rs
 
@@ -189,6 +209,10 @@ cargo run --example operations --features "smartcore-backend onnx registry monit
 cargo run --example specialized --features "timeseries incremental"
 ```
 
+```bash
+cargo run --example automl --features "smartcore-backend automl onnx"
+```
+
 ### Building on Windows
 
 The default toolchain is MSVC. If a Unix `link.exe` (e.g. from Git/Laragon) is
@@ -198,5 +222,5 @@ first, so the MSVC linker is found before the shadowing one.
 
 ## Roadmap
 
-Phases 0–6 are done. Phases 7–8 — AutoML and 1.0 hardening — are laid out in
-the design brief.
+Phases 0–7 are done. Phase 8 — 1.0 hardening (version pins, golden-output
+tests, feature-matrix CI) — is laid out in the design brief.

@@ -46,6 +46,8 @@ pub mod pipeline;
 pub mod traits;
 pub mod transform;
 
+#[cfg(feature = "automl")]
+pub mod automl;
 #[cfg(feature = "preprocessing")]
 pub mod balance;
 #[cfg(feature = "diagnostics")]
@@ -136,6 +138,9 @@ pub mod prelude {
 
     #[cfg(feature = "ensemble")]
     pub use crate::ensemble::{Bagging, Voting, VotingKind};
+
+    #[cfg(feature = "automl")]
+    pub use crate::automl::{AutoML, AutoMLResult, Budget};
     #[cfg(all(feature = "ensemble", feature = "model-selection"))]
     pub use crate::ensemble::Stacking;
 }
