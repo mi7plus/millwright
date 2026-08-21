@@ -40,6 +40,7 @@
 
 pub mod backends;
 pub mod error;
+pub mod evaluate;
 pub mod frame;
 pub mod pipeline;
 pub mod traits;
@@ -47,12 +48,18 @@ pub mod transform;
 
 #[cfg(feature = "preprocessing")]
 pub mod balance;
+#[cfg(feature = "diagnostics")]
+pub mod diagnostics;
 #[cfg(feature = "ensemble")]
 pub mod ensemble;
+#[cfg(feature = "explain")]
+pub mod explain;
 #[cfg(feature = "model-selection")]
 pub mod selection;
+#[cfg(feature = "viz")]
+pub mod viz;
 
-#[cfg(any(feature = "model-selection", feature = "ensemble"))]
+#[cfg(any(feature = "model-selection", feature = "ensemble", feature = "explain"))]
 mod rng;
 
 pub use error::{Error, Result};
@@ -61,6 +68,7 @@ pub use error::{Error, Result};
 pub mod prelude {
     pub use crate::error::{Error, Result};
     pub use crate::frame::{Dataset, Frame};
+    pub use crate::evaluate::{Evaluate, Report, Task};
     pub use crate::pipeline::Pipeline;
     pub use crate::traits::{
         Balancer, Clusterer, Estimator, Model, ParamValue, Predictor, ProbaPredictor, Transformer,
@@ -86,6 +94,15 @@ pub mod prelude {
 
     #[cfg(feature = "hpo")]
     pub use crate::selection::{BayesSearch, SearchSpace};
+
+    #[cfg(feature = "diagnostics")]
+    pub use crate::diagnostics::Diagnostics;
+
+    #[cfg(feature = "explain")]
+    pub use crate::explain::{permutation_importance, Explain, Explainer, Explanation};
+
+    #[cfg(feature = "viz")]
+    pub use crate::viz;
 
     #[cfg(feature = "ensemble")]
     pub use crate::ensemble::{Bagging, Voting, VotingKind};

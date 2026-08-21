@@ -5,7 +5,7 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
 See [`Millwright.html`](Millwright.html) / [`millwright-design-brief.pdf`](millwright-design-brief.pdf)
 for the full design brief.
 
-## Status: Phases 0–2 — done
+## Status: Phases 0–3 — done
 
 ### Phase 0 · the spine
 
@@ -46,10 +46,28 @@ for the full design brief.
   `BayesSearch` runs TPE search over a `SearchSpace` and returns the *same*
   `SearchResult` as grid/random search — one search API, three strategies.
 
+### Phase 3 · insight — *trust the model, not just run it*
+
+- **Evaluation reports** (`src/evaluate.rs`, core): `model.evaluate(&test)` bundles
+  task-appropriate metrics into a `Report` (accuracy/precision/recall/F1 or
+  MAE/MSE/RMSE/R²).
+- **Regression diagnostics** (`src/diagnostics.rs`, via [`regression-diagnostics`],
+  feature `diagnostics`): `Diagnostics::of(&data)` runs OLS and exposes
+  `summary()`, R², per-column VIF, residuals, and Cook's distance.
+- **Explainability** (`src/explain.rs`, via [`shap-rs`], feature `explain`):
+  `model.explain(&Explainer::kernel(), &frame)` gives per-row SHAP values and
+  global importance, plus `permutation_importance(...)`.
+- **Report figures** (`src/viz.rs`, via [`plotters-statistical`], feature `viz`):
+  `viz::roc_svg(...)` and `viz::residuals_svg(...)` render self-contained SVGs
+  (pure-Rust backend, no system fonts).
+
 [`imbalance-rs`]: https://crates.io/crates/imbalance-rs
 [`model-selection-rs`]: https://crates.io/crates/model-selection-rs
 [`linfa`]: https://crates.io/crates/linfa
 [`hyperopt-rs`]: https://crates.io/crates/hyperopt-rs
+[`regression-diagnostics`]: https://crates.io/crates/regression-diagnostics
+[`shap-rs`]: https://crates.io/crates/shap-rs
+[`plotters-statistical`]: https://crates.io/crates/plotters-statistical
 
 ### Quickstart
 
@@ -86,6 +104,10 @@ cargo run --example workflow
 cargo run --example backends --features "smartcore-backend linfa-backend hpo"
 ```
 
+```bash
+cargo run --example insight --features "smartcore-backend diagnostics explain viz"
+```
+
 ### Building on Windows
 
 The default toolchain is MSVC. If a Unix `link.exe` (e.g. from Git/Laragon) is
@@ -95,6 +117,6 @@ first, so the MSVC linker is found before the shadowing one.
 
 ## Roadmap
 
-Phases 0 (spine), 1 (prep & select), and 2 (backends & HPO) are done. Phases 3–8
-— diagnostics & explainability, ONNX & Python, serving & monitoring, time series
-& out-of-core, AutoML, and 1.0 hardening — are laid out in the design brief.
+Phases 0–3 are done. Phases 4–8 — ONNX & Python, serving & monitoring, time
+series & out-of-core, AutoML, and 1.0 hardening — are laid out in the design
+brief.

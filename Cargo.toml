@@ -20,6 +20,10 @@ linfa-clustering = { version = "0.8", optional = true }
 linfa-reduction = { version = "0.8", optional = true }
 linfa-nn = { version = "0.8", optional = true }
 hyperopt-rs = { version = "0.1", optional = true }
+regression-diagnostics = { version = "0.2", optional = true }
+shap-rs = { version = "0.1", optional = true }
+plotters-statistical = { version = "0.2", optional = true }
+plotters = { version = "0.3.7", default-features = false, features = ["svg_backend", "all_series"], optional = true }
 
 [features]
 # Phase 0 · THE SPINE — the smartcore backend is the first (and default) engine.
@@ -54,6 +58,16 @@ linfa-backend = [
 # API as grid/random search (needs the model-selection CV engine).
 hpo = ["dep:hyperopt-rs", "model-selection"]
 
+# Phase 3 · INSIGHT — trust the model, not just run it.
+# OLS regression diagnostics (VIF, residual tests, influence, summary()).
+diagnostics = ["dep:regression-diagnostics", "dep:ndarray"]
+
+# SHAP values and permutation importance via shap-rs.
+explain = ["dep:shap-rs"]
+
+# Report figures (ROC, calibration, residual) via plotters-statistical.
+viz = ["dep:plotters-statistical", "dep:plotters"]
+
 full = [
     "smartcore-backend",
     "preprocessing",
@@ -61,6 +75,9 @@ full = [
     "ensemble",
     "linfa-backend",
     "hpo",
+    "diagnostics",
+    "explain",
+    "viz",
 ]
 
 [[example]]
@@ -74,3 +91,7 @@ required-features = ["smartcore-backend", "preprocessing", "model-selection", "e
 [[example]]
 name = "backends"
 required-features = ["smartcore-backend", "linfa-backend", "hpo"]
+
+[[example]]
+name = "insight"
+required-features = ["smartcore-backend", "diagnostics", "explain", "viz"]
