@@ -321,29 +321,6 @@ grid! {
     </div>
   </section>
 
-  <!-- ===================== THE HARD PROBLEM ===================== -->
-  <section id="ndarray">
-    <div class="wrap">
-      <div class="head col">
-        <div class="eyebrow">The hard problem · solved by design</div>
-        <h2>Two <span class="mono">ndarray</span> worlds, one Frame.</h2>
-        <p class="muted"><span class="mono">linfa</span> pins <span class="mono">ndarray 0.15</span>; your newer crates use <span class="mono">0.16</span>; <span class="mono">smartcore</span> has its own <span class="mono">DenseMatrix</span>. These cannot meet in one function signature. This is the reason a unified framework doesn't exist yet — so it's the first thing the design settles.</p>
-      </div>
-      <div class="split">
-        <div class="card">
-          <h3>The framework owns the boundary type</h3>
-          <p class="muted" style="font-size:.94rem; margin-bottom:0">Millwright's <code class="inl">Frame</code> is a contiguous <code class="inl">f64</code> buffer + schema + optional target. The <em>public</em> API only ever speaks <code class="inl">Frame</code> — users are never locked to a version, exactly how pandas/NumPy sit under scikit-learn.</p>
-          <div class="conv">Frame { buf: Vec&lt;f64&gt;, shape, cols, target }</div>
-        </div>
-        <div class="card">
-          <h3>Adapters convert at the edge only</h3>
-          <p class="muted" style="font-size:.94rem; margin-bottom:0">Each backend adapter converts <code class="inl">Frame</code> ⇄ its native type <em>inside</em> the adapter — an O(n) copy over a row-major buffer, with a zero-copy fast path where layout and version already agree. The version war never reaches user code.</p>
-          <div class="conv">frame.<b>as_nd15()</b> · <b>as_nd16()</b> · <b>as_dense()</b>&nbsp;→ used only in adapters</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <!-- ===================== API ===================== -->
   <section id="api">
     <div class="wrap">
