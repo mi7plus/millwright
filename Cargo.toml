@@ -1,0 +1,26 @@
+[package]
+name = "millwright"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.80"
+description = "A unified ML framework for Rust — ten crates, one lifecycle."
+license = "MIT"
+repository = "https://github.com/GeorgeOlteanu/millwright"
+readme = "README.md"
+keywords = ["machine-learning", "ml", "pipeline", "sklearn", "smartcore"]
+categories = ["science", "algorithms"]
+
+[dependencies]
+smartcore = { version = "0.6", optional = true }
+
+[features]
+# Phase 0 · THE SPINE — the smartcore backend is the first (and default) engine.
+default = ["smartcore-backend"]
+smartcore-backend = ["dep:smartcore"]
+
+# `full` grows as later phases land; for now it mirrors the spine.
+full = ["smartcore-backend"]
+
+[[example]]
+name = "spine"
+required-features = ["smartcore-backend"]
