@@ -1,0 +1,65 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Millwright · Python</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="site.css">
+</head><body><header class="top">
+  <div class="wrap">
+    <div class="brand"><a href="../index.html"><span class="mark">⚙</span>millwright</a><span class="ver">docs</span></div>
+    <nav>
+      <a href="index.html">home</a>
+      <a href="data.html">data &amp; EDA</a>
+      <a href="pipelines.html">pipelines</a>
+      <a href="insight.html">insight</a>
+      <a href="deploy.html">deploy</a>
+      <a href="python.html" class="active">python</a>
+      <a href="../index.html">design brief</a>
+      <a class="repo" href="https://github.com/mi7plus/millwright">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="hero">
+      <div class="eyebrow">05 · python</div>
+      <h1>The same engine,<br>a Pythonic API.</h1>
+      <p class="lede"><code class="inl">pip install millwright</code> — a Pythonic pipeline over the same Rust engine, shipped on <a href="https://pypi.org/project/millwright/">PyPI</a> as an abi3 wheel built with maturin. Run it at Rust speed from a notebook.</p>
+    </div>
+  </div>
+
+  <section id="python">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Install &amp; use</div>
+        <h2>A pipeline, from Python.</h2>
+      </div>
+<pre>pip install millwright</pre>
+<pre><span class="k">import</span> millwright <span class="k">as</span> mw
+
+pipe = mw.<span class="f">Pipeline</span>()
+pipe.simple_imputer(strategy=<span class="s">"median"</span>)
+pipe.standard_scaler()
+pipe.random_forest(n_trees=<span class="k">100</span>, max_depth=<span class="k">8</span>)   <span class="c"># or .linear_regression()</span>
+
+pipe.fit(rows, labels)          <span class="c"># list[list[float]], list[float]</span>
+preds = pipe.predict(rows)      <span class="c"># runs the Rust engine</span>
+metrics = pipe.evaluate(rows, labels)   <span class="c"># -&gt; {"accuracy": …, "f1": …}</span></pre>
+      <div class="callout"><b>Roadmap.</b> The API today is list-based; direct <code class="inl">numpy</code> / <code class="inl">pandas</code> interop (and a wider surface — search, more models) is the next step.</div>
+      <p class="tiny"><code class="inl">python</code> is deliberately not part of <code class="inl">full</code>: pyo3's <code class="inl">extension-module</code> defers libpython symbols, so a plain <code class="inl">cargo test</code> can't link it. It is built and tested the way it ships — as a wheel. To build from source, from a virtualenv: <code class="inl">maturin develop --features python</code>.</p>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="pager">
+      <a href="deploy.html"><span class="dir">← prev</span><b>Deploy</b></a>
+      <a class="next" href="index.html"><span class="dir">back to →</span><b>Docs home</b></a>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="mono">⚙ millwright docs</span>
+    <span class="mono"><a href="../index.html">design brief</a> · <a href="https://crates.io/crates/millwright">crates.io</a> · <a href="https://pypi.org/project/millwright/">PyPI</a> · <a href="https://docs.rs/millwright">docs.rs</a> · <a href="https://github.com/mi7plus/millwright">GitHub</a></span>
+  </div>
+</footer>
+</body></html>

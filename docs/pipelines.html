@@ -1,0 +1,187 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Millwright · Pipelines &amp; Models</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="site.css">
+</head><body><header class="top">
+  <div class="wrap">
+    <div class="brand"><a href="../index.html"><span class="mark">⚙</span>millwright</a><span class="ver">docs</span></div>
+    <nav>
+      <a href="index.html">home</a>
+      <a href="data.html">data &amp; EDA</a>
+      <a href="pipelines.html" class="active">pipelines</a>
+      <a href="insight.html">insight</a>
+      <a href="deploy.html">deploy</a>
+      <a href="python.html">python</a>
+      <a href="../index.html">design brief</a>
+      <a class="repo" href="https://github.com/mi7plus/millwright">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="hero">
+      <div class="eyebrow">02 · pipelines &amp; models</div>
+      <h1>Four traits. One pipeline.<br>Every backend.</h1>
+      <p class="lede">Everything composes because everything speaks the same contract. Compose preprocessing and a model into one object, tune any parameter by path, cross-validate the whole thing, and combine models across backends.</p>
+    </div>
+  </div>
+
+  <!-- CONTRACT -->
+  <section id="contract">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">The contract</div>
+        <h2>Four object-safe traits.</h2>
+        <p class="muted">Object-safe means a <code class="inl">Pipeline</code> can hold a heterogeneous <code class="inl">Vec&lt;Box&lt;dyn …&gt;&gt;</code>. A blanket <code class="inl">Model</code> ties <code class="inl">Estimator + Predictor</code> together; a blanket <code class="inl">Evaluate</code> gives every predictor a <code class="inl">.evaluate(&amp;test)</code>.</p>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Trait</th><th>Method</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><span class="feat">Transformer</span></td><td>fit(&amp;mut, &amp;Frame) → transform(&amp;Frame)</td><td>learn column stats, reshape features</td></tr>
+            <tr><td><span class="feat">Estimator</span></td><td>fit(&amp;mut, &amp;Dataset)</td><td>learn a model from features + target</td></tr>
+            <tr><td><span class="feat">Predictor</span></td><td>predict(&amp;Frame) → Vec&lt;f64&gt;</td><td>one prediction per row</td></tr>
+            <tr><td><span class="feat">ProbaPredictor</span></td><td>predict_proba(&amp;Frame) → Frame</td><td>class probabilities</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted">Specialized traits cover the shapes that don't fit the supervised mould: <code class="inl">Clusterer</code>, <code class="inl">Forecaster</code>, <code class="inl">PartialFit</code>, and <code class="inl">Balancer</code>.</p>
+    </div>
+  </section>
+
+  <!-- PIPELINE -->
+  <section id="pipeline">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Compose</div>
+        <h2>Pipelines: compose, then tune by path.</h2>
+        <p class="muted">A <code class="inl">Pipeline</code> is named transformer steps plus one final estimator, as a single object that is itself a <code class="inl">Model</code>. Steps are addressable by name, so you tune a parameter deep in the chain by path — the scikit-learn <code class="inl">"step__param"</code> convention. Pipelines nest.</p>
+      </div>
+<pre><span class="k">let mut</span> pipe = <span class="f">Pipeline</span>::new()
+    .step(<span class="s">"scale"</span>, <span class="f">StandardScaler</span>::new())
+    .estimator(<span class="s">"rf"</span>, <span class="f">RandomForest</span>::new());
+
+pipe.set_param(<span class="s">"rf__n_trees"</span>, <span class="f">ParamValue</span>::Int(<span class="k">50</span>))?;   <span class="c">// tune by path</span>
+pipe.set_param(<span class="s">"rf__max_depth"</span>, <span class="f">ParamValue</span>::Int(<span class="k">4</span>))?;
+
+pipe.fit(&amp;train)?;                <span class="c">// fit transforms, then the estimator</span>
+<span class="k">let</span> preds = pipe.predict(&amp;x)?;   <span class="c">// replays fitted transforms, then the model</span></pre>
+      <p class="run">cargo run --example spine</p>
+    </div>
+  </section>
+
+  <!-- PREP -->
+  <section id="prep">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Preprocess &amp; balance</div>
+        <h2>Impute, scale, encode, resample.</h2>
+        <p class="muted">The core transformers need no extra dependencies — <code class="inl">SimpleImputer</code>, <code class="inl">StandardScaler</code>, <code class="inl">MinMaxScaler</code>, <code class="inl">OneHotEncoder</code>, plus <code class="inl">Winsorize</code>, <code class="inl">PowerTransform</code>, and <code class="inl">ColumnTransformer</code>. <em>Balancers</em> (feature <code class="inl">preprocessing</code>) are train-time only — they resample during <code class="inl">fit</code> and are skipped at predict time.</p>
+      </div>
+<pre><span class="k">let</span> pipe = <span class="f">Pipeline</span>::new()
+    .step(<span class="s">"impute"</span>, <span class="f">SimpleImputer</span>::median())   <span class="c">// or ::mean() / ::constant(0.0)</span>
+    .step(<span class="s">"scale"</span>,  <span class="f">StandardScaler</span>::new())      <span class="c">// or MinMaxScaler::new()</span>
+    .step(<span class="s">"encode"</span>, <span class="f">OneHotEncoder</span>::infer())      <span class="c">// or ::columns(["city"])</span>
+    .balance(<span class="f">Smote</span>::new().k_neighbors(<span class="k">3</span>).random_state(<span class="k">0</span>))  <span class="c">// train-time only</span>
+    .estimator(<span class="s">"rf"</span>, <span class="f">RandomForest</span>::new());
+
+<span class="c">// different treatment per column group</span>
+<span class="k">let</span> pre = <span class="f">ColumnTransformer</span>::new()
+    .add(<span class="f">PowerTransform</span>::yeo_johnson(), [<span class="s">"income"</span>])   <span class="c">// de-skew</span>
+    .add(<span class="f">Winsorize</span>::new(), [<span class="s">"age"</span>]);                  <span class="c">// clip outliers</span></pre>
+    </div>
+  </section>
+
+  <!-- SELECT -->
+  <section id="select">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Cross-validate &amp; search</div>
+        <h2>One search API, three strategies.</h2>
+        <p class="muted">Search runs over the entire pipeline, cross-validated, tuning by path. <code class="inl">RandomSearch</code> swaps the grid for random draws; with <code class="inl">hpo</code>, <code class="inl">BayesSearch</code> runs TPE and returns the <em>same</em> <code class="inl">SearchResult</code>.</p>
+      </div>
+<pre><span class="k">use</span> millwright::grid;
+
+<span class="k">let</span> search = <span class="f">GridSearch</span>::new(pipe, <span class="f">grid!</span> { <span class="s">"rf__max_depth"</span> =&gt; [<span class="k">2</span>, <span class="k">4</span>, <span class="k">8</span>] })
+    .cv(<span class="f">StratifiedKFold</span>::new(<span class="k">4</span>))
+    .scoring(<span class="f">Metric</span>::F1)
+    .fit(&amp;train)?;
+
+<span class="f">println!</span>(<span class="s">"best F1 = {:.3}"</span>, search.best_score());
+<span class="k">let</span> preds = search.predict(&amp;probe)?;   <span class="c">// the refit best model</span></pre>
+      <p class="run">cargo run --example workflow · cargo run --example backends --features "linfa-backend hpo"</p>
+    </div>
+  </section>
+
+  <!-- MODELS -->
+  <section id="models">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Models</div>
+        <h2>A forest, a line, and real probabilities.</h2>
+        <p class="muted">The smartcore backend supplies <code class="inl">RandomForest</code> and <code class="inl">LinearRegression</code>. The core <code class="inl">LogisticRegression</code> is a native binary classifier with a genuine <code class="inl">predict_proba</code> — the framework's first real <code class="inl">ProbaPredictor</code>, available without any backend feature.</p>
+      </div>
+<pre><span class="k">let mut</span> clf = <span class="f">LogisticRegression</span>::new().epochs(<span class="k">500</span>);
+clf.fit(&amp;train)?;
+<span class="k">let</span> proba = clf.predict_proba(&amp;test)?;   <span class="c">// one column per class</span></pre>
+    </div>
+  </section>
+
+  <!-- ENSEMBLE -->
+  <section id="ensemble">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Combine</div>
+        <h2>Ensembles — even across backends.</h2>
+        <p class="muted">Because every model is a <code class="inl">Predictor</code>, combining models is just another <code class="inl">Predictor</code> that holds several — no new machinery, and it works across backends. An ensemble <em>is</em> an <code class="inl">Estimator</code>, so you can search a member straight through it.</p>
+      </div>
+<pre><span class="c">// soft (mean class-vote share) vote across two forests</span>
+<span class="k">let mut</span> vote = <span class="f">Voting</span>::soft()
+    .add(<span class="s">"rf_shallow"</span>, <span class="f">RandomForest</span>::new().max_depth(<span class="k">2</span>))
+    .add(<span class="s">"rf_deep"</span>,    <span class="f">RandomForest</span>::new().max_depth(<span class="k">8</span>));
+vote.fit(&amp;train)?;
+
+<span class="c">// stacking: a meta-learner on leak-free out-of-fold base predictions</span>
+<span class="k">let mut</span> stack = <span class="f">Stacking</span>::meta(<span class="f">RandomForest</span>::new().n_trees(<span class="k">50</span>))
+    .base(<span class="s">"rf"</span>,  <span class="f">RandomForest</span>::new().n_trees(<span class="k">30</span>))
+    .base(<span class="s">"knn"</span>, <span class="f">RandomForest</span>::new().max_depth(<span class="k">3</span>))
+    .cv(<span class="f">StratifiedKFold</span>::new(<span class="k">4</span>));   <span class="c">// folds from the CV engine → leak-free</span>
+stack.fit(&amp;train)?;</pre>
+    </div>
+  </section>
+
+  <!-- LINFA -->
+  <section id="linfa">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">A second backend</div>
+        <h2>linfa — through the same <span class="mono">Frame</span>.</h2>
+        <p class="muted">The <code class="inl">linfa-backend</code> feature adds unsupervised models through the same boundary type — the proof that the two-<code class="inl">ndarray</code>-worlds problem is settled by design. Clusterers implement a <code class="inl">Clusterer</code> contract; <code class="inl">Pca</code> is a <code class="inl">Transformer</code>.</p>
+      </div>
+<pre><span class="k">let mut</span> km = <span class="f">KMeans</span>::new(<span class="k">2</span>);
+km.fit(&amp;x)?;
+<span class="f">println!</span>(<span class="s">"k-means labels: {:?}"</span>, km.predict(&amp;x)?);
+
+<span class="k">let</span> dbscan = <span class="f">Dbscan</span>::new(<span class="k">3</span>).tolerance(<span class="k">1.0</span>);
+<span class="f">println!</span>(<span class="s">"dbscan: {:?}"</span>, dbscan.fit_predict(&amp;x)?);
+
+<span class="k">let mut</span> pca = <span class="f">Pca</span>::new(<span class="k">1</span>);
+<span class="k">let</span> reduced = pca.fit_transform(&amp;x)?;   <span class="c">// a Frame with fewer columns</span></pre>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="pager">
+      <a href="data.html"><span class="dir">← prev</span><b>Data &amp; EDA</b></a>
+      <a class="next" href="insight.html"><span class="dir">next →</span><b>Insight</b></a>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="mono">⚙ millwright docs</span>
+    <span class="mono"><a href="../index.html">design brief</a> · <a href="https://crates.io/crates/millwright">crates.io</a> · <a href="https://pypi.org/project/millwright/">PyPI</a> · <a href="https://docs.rs/millwright">docs.rs</a> · <a href="https://github.com/mi7plus/millwright">GitHub</a></span>
+  </div>
+</footer>
+</body></html>

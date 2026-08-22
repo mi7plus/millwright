@@ -1,0 +1,134 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Millwright · Deploy</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="site.css">
+</head><body><header class="top">
+  <div class="wrap">
+    <div class="brand"><a href="../index.html"><span class="mark">⚙</span>millwright</a><span class="ver">docs</span></div>
+    <nav>
+      <a href="index.html">home</a>
+      <a href="data.html">data &amp; EDA</a>
+      <a href="pipelines.html">pipelines</a>
+      <a href="insight.html">insight</a>
+      <a href="deploy.html" class="active">deploy</a>
+      <a href="python.html">python</a>
+      <a href="../index.html">design brief</a>
+      <a class="repo" href="https://github.com/mi7plus/millwright">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="hero">
+      <div class="eyebrow">04 · deploy</div>
+      <h1>Past where<br>scikit-learn stops.</h1>
+      <p class="lede">Export to one portable ONNX artifact, serve a drift-monitored endpoint, version every model with its lineage, and — the framework pointed at itself — let AutoML search for the best <em>deployable</em> pipeline.</p>
+    </div>
+  </div>
+
+  <!-- ONNX -->
+  <section id="onnx">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Portability</div>
+        <h2>ONNX in and out.</h2>
+        <p class="muted">With <code class="inl">onnx</code>, any model — or a whole pipeline — exports to one <code class="inl">.onnx</code> file. Whole-pipeline export folds leading affine scalers into the estimator's graph: raw features in, predictions out. <code class="inl">InferenceModel::load</code> runs any ONNX file back through tract.</p>
+      </div>
+<pre><span class="k">let mut</span> pipe = <span class="f">Pipeline</span>::new()
+    .step(<span class="s">"scale"</span>, <span class="f">StandardScaler</span>::new())
+    .estimator(<span class="s">"lr"</span>, <span class="f">LinearRegression</span>::new());
+pipe.fit(&amp;train)?;
+<span class="k">let</span> native = pipe.predict(&amp;probe)?;
+
+pipe.export_onnx(<span class="s">"pipeline.onnx"</span>)?;                 <span class="c">// scaler + model, one graph</span>
+<span class="k">let</span> model = <span class="f">InferenceModel</span>::load(<span class="s">"pipeline.onnx"</span>)?;
+<span class="k">let</span> via_onnx = model.predict(&amp;probe)?;              <span class="c">// matches `native`</span></pre>
+      <p class="tiny">Linear/affine/pipeline graphs run inside tract for a full round-trip. A random forest exports to a valid ONNX-ML tree-ensemble artifact for external runtimes (onnxruntime); tract implements NN ops, not the ONNX-ML tree ops.</p>
+      <p class="run">cargo run --example portability --features "smartcore-backend onnx"</p>
+    </div>
+  </section>
+
+  <!-- OPERATE -->
+  <section id="operate">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Operations</div>
+        <h2>Registry, drift, serving.</h2>
+        <p class="muted">The <code class="inl">registry</code> versions the ONNX artifact (content-addressed, with a reference distribution and movable tags); <code class="inl">monitor</code> watches the prediction stream for PSI drift; <code class="inl">serve</code> exposes a validated endpoint that feeds the monitor.</p>
+      </div>
+<pre><span class="k">let</span> reg = <span class="f">Registry</span>::local(<span class="s">"./models"</span>);
+<span class="k">let</span> v1 = reg.register(<span class="s">"demand"</span>, &amp;model, <span class="f">Metadata</span> {
+    metrics: <span class="f">vec!</span>[(<span class="s">"r2"</span>.into(), <span class="k">1.0</span>)],
+    reference: reference.clone(),   <span class="c">// the distribution drift watches against</span>
+    note: <span class="s">"baseline"</span>.into(),
+})?;
+reg.tag(<span class="s">"demand"</span>, &amp;v1.id, <span class="s">"prod"</span>)?;
+<span class="k">let</span> reverted = reg.rollback(<span class="s">"demand"</span>, <span class="s">"prod"</span>)?;   <span class="c">// revert in one line</span>
+
+<span class="c">// serve the prod artifact, watching for drift on every request</span>
+<span class="f">Server</span>::from_onnx(reg.onnx_path(<span class="s">"demand"</span>, <span class="s">"prod"</span>)?)?
+    .route(<span class="s">"/predict"</span>)
+    .with_monitor(<span class="f">DriftMonitor</span>::psi(&amp;reference)?)
+    .serve(<span class="s">"0.0.0.0:8080"</span>).<span class="k">await</span>?;         <span class="c">// POST /predict, GET /metrics</span></pre>
+      <p class="run">cargo run --example operations --features "onnx registry monitor serve"</p>
+    </div>
+  </section>
+
+  <!-- SPECIALIZED -->
+  <section id="specialized">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Specialized shapes</div>
+        <h2>Time series &amp; out-of-core.</h2>
+        <p class="muted">Same contract, different data shapes — each gets its own trait. These two crates pin <code class="inl">ndarray 0.15</code> while the rest of the stack uses <code class="inl">0.16</code>; Cargo links both and converts only inside the adapters.</p>
+      </div>
+<pre><span class="c">// time series (feature = "timeseries")</span>
+<span class="k">let mut</span> arima = <span class="f">AutoArima</span>::new().max_p(<span class="k">3</span>).max_q(<span class="k">3</span>);
+arima.fit(&amp;series)?;                  <span class="c">// &[f64]</span>
+<span class="k">let</span> forecast = arima.forecast(<span class="k">6</span>)?;   <span class="c">// six steps ahead</span>
+
+<span class="c">// out-of-core (feature = "incremental") — never holds the whole set in memory</span>
+<span class="k">let mut</span> model = <span class="f">IncrementalLinear</span>::with_rate(<span class="k">0.05</span>, <span class="k">0.0</span>);
+<span class="k">for</span> batch <span class="k">in</span> batches {
+    model.partial_fit(&amp;batch)?;      <span class="c">// one batch at a time</span>
+}</pre>
+      <p class="run">cargo run --example specialized --features "timeseries incremental"</p>
+    </div>
+  </section>
+
+  <!-- AUTOML -->
+  <section id="automl">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Synthesis</div>
+        <h2>AutoML — the framework, pointed at itself.</h2>
+        <p class="muted">Profiling, preprocessing, CV, search, and ensembling are exactly what an AutoML engine needs — so <code class="inl">AutoML</code> is not a bolt-on, it is the framework orchestrating its own parts. Point it at data and a budget; get a leaderboard and the best <em>deployable</em> model.</p>
+      </div>
+<pre><span class="k">let</span> result = <span class="f">AutoML</span>::classifier()      <span class="c">// or ::regressor()</span>
+    .budget(<span class="f">Budget</span>::trials(<span class="k">20</span>))         <span class="c">// or Budget::minutes(10)</span>
+    .metric(<span class="f">Metric</span>::F1)
+    .cv(<span class="f">StratifiedKFold</span>::new(<span class="k">5</span>))
+    .seed(<span class="k">0</span>)
+    .fit(&amp;train)?;
+
+<span class="f">println!</span>(<span class="s">"{}"</span>, result.leaderboard());
+result.export_onnx(<span class="s">"model.onnx"</span>)?;   <span class="c">// deployable — unlike a TPOT object</span></pre>
+      <p class="run">cargo run --example automl --features "automl onnx"</p>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="pager">
+      <a href="insight.html"><span class="dir">← prev</span><b>Insight</b></a>
+      <a class="next" href="python.html"><span class="dir">next →</span><b>Python</b></a>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="mono">⚙ millwright docs</span>
+    <span class="mono"><a href="../index.html">design brief</a> · <a href="https://crates.io/crates/millwright">crates.io</a> · <a href="https://pypi.org/project/millwright/">PyPI</a> · <a href="https://docs.rs/millwright">docs.rs</a> · <a href="https://github.com/mi7plus/millwright">GitHub</a></span>
+  </div>
+</footer>
+</body></html>

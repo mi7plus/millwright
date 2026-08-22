@@ -1,0 +1,156 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Millwright · Docs</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="site.css">
+</head><body><header class="top">
+  <div class="wrap">
+    <div class="brand"><a href="../index.html"><span class="mark">⚙</span>millwright</a><span class="ver">docs</span></div>
+    <nav>
+      <a href="index.html" class="active">home</a>
+      <a href="data.html">data &amp; EDA</a>
+      <a href="pipelines.html">pipelines</a>
+      <a href="insight.html">insight</a>
+      <a href="deploy.html">deploy</a>
+      <a href="python.html">python</a>
+      <a href="../index.html">design brief</a>
+      <a class="repo" href="https://github.com/mi7plus/millwright">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="hero">
+      <div class="eyebrow">The guide</div>
+      <h1>Data in, monitored<br>service out.</h1>
+      <div class="sub">one data model · one contract · one pipeline</div>
+      <p class="lede">The <a href="../index.html">design brief</a> is the <b>why</b>. These docs are the <b>how</b>: a hands-on run through the whole lifecycle, one topic per page. Every snippet is real API, mirrored from the runnable programs in <code class="inl">examples/</code>.</p>
+    </div>
+  </div>
+
+  <!-- QUICKSTART -->
+  <section id="quickstart">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Quickstart</div>
+        <h2>Fit and predict in a dozen lines.</h2>
+        <p class="muted">Add the crate — <code class="inl">default</code> is a lean, useful core (smartcore backend, preprocessing, model selection, ensembles).</p>
+      </div>
+<pre>cargo add millwright</pre>
+<pre><span class="k">use</span> millwright::prelude::*;
+
+<span class="c">// features as rows + a target -&gt; a Dataset</span>
+<span class="k">let</span> x = <span class="f">Frame</span>::from_rows(rows, <span class="f">vec!</span>[<span class="s">"a"</span>.into(), <span class="s">"b"</span>.into()])?;
+<span class="k">let</span> train = <span class="f">Dataset</span>::new(x, y)?;
+
+<span class="c">// standardize, then a random forest — one composable object</span>
+<span class="k">let mut</span> pipe = <span class="f">Pipeline</span>::new()
+    .step(<span class="s">"scale"</span>, <span class="f">StandardScaler</span>::new())
+    .estimator(<span class="s">"rf"</span>, <span class="f">RandomForest</span>::new());
+
+pipe.fit(&amp;train)?;
+<span class="k">let</span> preds = pipe.predict(&amp;test)?;</pre>
+      <p class="run">cargo run --example spine</p>
+    </div>
+  </section>
+
+  <!-- TOPIC CARDS -->
+  <section id="topics">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">The lifecycle, by topic</div>
+        <h2>Where to go next.</h2>
+      </div>
+      <div class="cards">
+        <a class="card" href="data.html">
+          <div class="n">01 · data &amp; EDA</div>
+          <h3>Frame, Dataset, Table &amp; Profile</h3>
+          <p>The numeric boundary type, and the polars-backed typed layer that ingests CSV/Parquet, profiles it, and drafts a pipeline.</p>
+        </a>
+        <a class="card" href="pipelines.html">
+          <div class="n">02 · pipelines &amp; models</div>
+          <h3>The contract, preprocessing, search, ensembles</h3>
+          <p>The four traits, composable pipelines tuned by path, cross-validation &amp; HPO, ensembles across backends, and a second backend (linfa).</p>
+        </a>
+        <a class="card" href="insight.html">
+          <div class="n">03 · insight</div>
+          <h3>Evaluate, explain, calibrate, detect</h3>
+          <p>Metrics and diagnostics, SHAP, report figures, probability calibration, and unsupervised outlier detection.</p>
+        </a>
+        <a class="card" href="deploy.html">
+          <div class="n">04 · deploy</div>
+          <h3>ONNX, serving, registry, drift, AutoML</h3>
+          <p>Export to one ONNX artifact, serve a drift-monitored endpoint, version models, and let AutoML search for the best deployable pipeline.</p>
+        </a>
+        <a class="card" href="python.html">
+          <div class="n">05 · python</div>
+          <h3><code class="inl">pip install millwright</code></h3>
+          <p>The same Rust engine behind a Pythonic API, shipped as an abi3 wheel.</p>
+        </a>
+        <a class="card" href="https://docs.rs/millwright">
+          <div class="n">reference ↗</div>
+          <h3>API docs on docs.rs</h3>
+          <p>Every type and method, generated from the source with all features.</p>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section id="features">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Cargo features</div>
+        <h2>Pull only what you need.</h2>
+        <p class="muted">Every capability is a feature over one crate. A serving binary never compiles SHAP; a notebook never compiles <code class="inl">axum</code>. <code class="inl">full</code> lights up everything Rust-facing.</p>
+      </div>
+<pre><span class="c"># just the spine</span>
+millwright = { version = <span class="s">"0.1"</span>, default-features = <span class="k">false</span>, features = [<span class="s">"smartcore-backend"</span>] }
+
+<span class="c"># the whole lifecycle</span>
+millwright = { version = <span class="s">"0.1"</span>, features = [<span class="s">"full"</span>] }</pre>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Feature</th><th>Adds</th></tr></thead>
+          <tbody>
+            <tr class="core"><td><span class="feat">smartcore-backend</span><span class="badge">default</span></td><td>RandomForest · LinearRegression</td></tr>
+            <tr class="core"><td><span class="feat">preprocessing</span><span class="badge">default</span></td><td>Smote · RandomOverSampler (imputers/scalers/encoders are core)</td></tr>
+            <tr class="core"><td><span class="feat">model-selection</span><span class="badge">default</span></td><td>KFold · StratifiedKFold · GridSearch · RandomSearch · metrics</td></tr>
+            <tr class="core"><td><span class="feat">ensemble</span><span class="badge">default</span></td><td>Voting · Bagging · Stacking</td></tr>
+            <tr><td><span class="feat">eda</span></td><td>Table (polars CSV/Parquet ingest) · Profile (typed EDA)</td></tr>
+            <tr><td><span class="feat">linfa-backend</span></td><td>KMeans · GaussianMixture · Dbscan · Pca</td></tr>
+            <tr><td><span class="feat">hpo</span></td><td>BayesSearch (TPE) over a SearchSpace</td></tr>
+            <tr><td><span class="feat">diagnostics</span></td><td>OLS Diagnostics: VIF · residuals · Cook's distance</td></tr>
+            <tr><td><span class="feat">explain</span></td><td>Explainer (SHAP) · permutation_importance</td></tr>
+            <tr><td><span class="feat">calibration</span></td><td>PlattScaling · IsotonicRegression · reliability_curve · CalibratedClassifier</td></tr>
+            <tr><td><span class="feat">anomaly</span></td><td>Mahalanobis · KnnScore outlier detectors</td></tr>
+            <tr><td><span class="feat">viz</span></td><td>ROC / residual SVG figures</td></tr>
+            <tr><td><span class="feat">onnx</span></td><td>export_onnx · InferenceModel (tract)</td></tr>
+            <tr><td><span class="feat">registry</span></td><td>versioned model Registry</td></tr>
+            <tr><td><span class="feat">monitor</span></td><td>DriftMonitor (PSI)</td></tr>
+            <tr><td><span class="feat">serve</span></td><td>Server — POST /predict, GET /metrics</td></tr>
+            <tr><td><span class="feat">timeseries</span></td><td>AutoArima forecaster</td></tr>
+            <tr><td><span class="feat">incremental</span></td><td>IncrementalLinear (partial_fit)</td></tr>
+            <tr><td><span class="feat">automl</span></td><td>AutoML search</td></tr>
+            <tr><td><span class="feat">python</span></td><td>the <code class="inl">pip install millwright</code> package</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="tiny">Reproducibility is a feature too: engines pinned to exact versions, a committed <code class="inl">Cargo.lock</code>, golden-output tests, and a feature-matrix CI. See the <a href="https://github.com/mi7plus/millwright">repo</a>.</p>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="pager">
+      <span></span>
+      <a class="next" href="data.html"><span class="dir">next →</span><b>Data &amp; EDA</b></a>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="mono">⚙ millwright docs</span>
+    <span class="mono"><a href="../index.html">design brief</a> · <a href="https://crates.io/crates/millwright">crates.io</a> · <a href="https://pypi.org/project/millwright/">PyPI</a> · <a href="https://docs.rs/millwright">docs.rs</a> · <a href="https://github.com/mi7plus/millwright">GitHub</a></span>
+  </div>
+</footer>
+</body></html>

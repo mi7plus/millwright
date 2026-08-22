@@ -3,7 +3,8 @@
 A unified ML framework for Rust — *ten crates, one lifecycle.*
 
 - **Tutorial:** [`GUIDE.md`](GUIDE.md) — the hands-on walk through the whole
-  lifecycle (also as a page: [`guide.html`](guide.html)).
+  lifecycle (also as a multi-page docs site under [`docs/`](docs/index.html),
+  hosted at <https://millwright-rs.dev/docs/>).
 - **Design brief:** the *why*, at **<https://millwright-rs.dev/>**.
 
 > *"Ten crates"* is the ecosystem this project assembles —

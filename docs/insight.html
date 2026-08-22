@@ -1,0 +1,102 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Millwright · Insight</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="site.css">
+</head><body><header class="top">
+  <div class="wrap">
+    <div class="brand"><a href="../index.html"><span class="mark">⚙</span>millwright</a><span class="ver">docs</span></div>
+    <nav>
+      <a href="index.html">home</a>
+      <a href="data.html">data &amp; EDA</a>
+      <a href="pipelines.html">pipelines</a>
+      <a href="insight.html" class="active">insight</a>
+      <a href="deploy.html">deploy</a>
+      <a href="python.html">python</a>
+      <a href="../index.html">design brief</a>
+      <a class="repo" href="https://github.com/mi7plus/millwright">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="hero">
+      <div class="eyebrow">03 · insight</div>
+      <h1>Trust the model,<br>not just run it.</h1>
+      <p class="lede">Score it, diagnose it, explain it, calibrate its probabilities, and flag the weird rows — the tools that turn a fitted model into one you can defend.</p>
+    </div>
+  </div>
+
+  <!-- EVALUATE -->
+  <section id="evaluate">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Evaluate, diagnose, explain</div>
+        <h2>Metrics, VIF, SHAP, figures.</h2>
+        <p class="muted">Any predictor scores itself on a labelled set (core). <code class="inl">explain</code> adds SHAP and permutation importance; <code class="inl">diagnostics</code> adds OLS VIF / residuals / influence; <code class="inl">viz</code> renders self-contained SVGs (a pure-Rust backend, no system fonts).</p>
+      </div>
+<pre><span class="k">let mut</span> rf = <span class="f">RandomForest</span>::new().n_trees(<span class="k">60</span>);
+rf.fit(&amp;train)?;
+<span class="f">print!</span>(<span class="s">"{}"</span>, rf.evaluate(&amp;test)?);   <span class="c">// accuracy / precision / recall / F1</span>
+
+<span class="c">// explain (feature = "explain")</span>
+<span class="k">let</span> shap = rf.explain(&amp;<span class="f">Explainer</span>::kernel().nsamples(<span class="k">80</span>), test.features())?;
+<span class="k">let</span> perm = <span class="f">permutation_importance</span>(&amp;rf, &amp;test, <span class="k">8</span>, <span class="k">0</span>)?;
+
+<span class="c">// diagnostics (feature = "diagnostics") · viz (feature = "viz")</span>
+<span class="k">let</span> diag = <span class="f">Diagnostics</span>::of(&amp;reg)?;
+<span class="f">println!</span>(<span class="s">"R² = {:.4}, VIF = {:?}"</span>, diag.r_squared(), diag.vif());
+<span class="k">let</span> auc = viz::roc_svg(test.target(), &amp;scores, <span class="s">"roc.svg"</span>, (<span class="k">520</span>, <span class="k">420</span>))?;</pre>
+      <p class="run">cargo run --example insight --features "diagnostics explain viz"</p>
+    </div>
+  </section>
+
+  <!-- CALIBRATION -->
+  <section id="calibration">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Calibration</div>
+        <h2>Probabilities that mean what they say.</h2>
+        <p class="muted">With <code class="inl">calibration</code>, wrap any <code class="inl">ProbaPredictor</code> (a <code class="inl">LogisticRegression</code>, or a soft vote's class-vote shares) in a <code class="inl">CalibratedClassifier</code> — itself a <code class="inl">ProbaPredictor</code>, so it composes. Fit the calibrator on a held-out set.</p>
+      </div>
+<pre><span class="k">let mut</span> clf = <span class="f">LogisticRegression</span>::new();
+clf.fit(&amp;train)?;
+
+<span class="k">let</span> calibrated = <span class="f">CalibratedClassifier</span>::isotonic(clf).fit(&amp;holdout)?;   <span class="c">// or ::platt(..)</span>
+<span class="k">let</span> probs = calibrated.predict_proba(&amp;test)?;
+
+<span class="c">// check calibration directly: predicted vs. observed, per bin</span>
+<span class="k">let</span> curve = <span class="f">reliability_curve</span>(&amp;probs.column(<span class="k">1</span>), test.target(), <span class="k">10</span>);</pre>
+    </div>
+  </section>
+
+  <!-- ANOMALY -->
+  <section id="anomaly">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Anomaly</div>
+        <h2>Spot the rows that don't belong.</h2>
+        <p class="muted">With <code class="inl">anomaly</code>, <code class="inl">Mahalanobis</code> (covariance-aware distance) and <code class="inl">KnnScore</code> (k-th nearest-neighbour distance) score each row unsupervised — higher is more anomalous. Both implement a shared <code class="inl">OutlierDetector</code> trait, so they're interchangeable.</p>
+      </div>
+<pre><span class="k">let mut</span> m = <span class="f">Mahalanobis</span>::new();     <span class="c">// or KnnScore::new(k)</span>
+m.fit(&amp;x)?;
+<span class="k">let</span> scores = m.score(&amp;x)?;          <span class="c">// higher = more anomalous</span>
+<span class="k">let</span> flags = m.is_outlier(&amp;x, <span class="k">3.0</span>)?;</pre>
+      <p class="run">cargo run --example trust --features "calibration anomaly"</p>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="pager">
+      <a href="pipelines.html"><span class="dir">← prev</span><b>Pipelines &amp; Models</b></a>
+      <a class="next" href="deploy.html"><span class="dir">next →</span><b>Deploy</b></a>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="mono">⚙ millwright docs</span>
+    <span class="mono"><a href="../index.html">design brief</a> · <a href="https://crates.io/crates/millwright">crates.io</a> · <a href="https://pypi.org/project/millwright/">PyPI</a> · <a href="https://docs.rs/millwright">docs.rs</a> · <a href="https://github.com/mi7plus/millwright">GitHub</a></span>
+  </div>
+</footer>
+</body></html>
