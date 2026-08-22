@@ -41,16 +41,20 @@ there because it needs a Python interpreter.
 The recommended path is the **`release-python.yml`** workflow, which builds
 Linux (x86_64 + aarch64), macOS (x86_64 + aarch64), and Windows wheels plus an
 sdist, and publishes them together via **Trusted Publishing (OIDC)** — no stored
-token. One-time setup, on PyPI (before the first publish, add a *pending*
-publisher: PyPI → account → Publishing):
+token. One-time setup, on PyPI:
+
+- **Existing project:** PyPI → Your projects → `millwright` → Manage →
+  Publishing → Add a new publisher (GitHub Actions).
+- **Before the first publish:** account → Publishing → add a *pending* publisher.
 
 | field               | value               |
 | ------------------- | ------------------- |
-| PyPI Project Name   | `millwright`        |
 | Owner               | `mi7plus`           |
 | Repository name     | `millwright`        |
 | Workflow name       | `release-python.yml`|
 | Environment         | *(leave blank)*     |
+
+*(A pending publisher also needs the PyPI Project Name, `millwright`.)*
 
 Then every release is just a tag:
 
