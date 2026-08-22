@@ -22,6 +22,11 @@ All notable changes to Millwright are recorded here. The format follows
   ONNX model (from scikit-learn, PyTorch, …) can be dropped into a `Pipeline`
   as a frozen estimator behind Millwright's preprocessing — in Rust and, via
   `mw.OnnxModel(path)`, from Python.
+- **Python: `mw.Table` + `mw.Profile`** — dtype-aware CSV/Parquet ingest and
+  automated EDA (`Profile.of(table_or_frame).to_html(path)`). The wheel now
+  bundles the `eda` (polars) engine, so it is larger than the pure-model build.
+- **`Table::from_frame`** (Rust): build a numeric `Table` from a `Frame`, so the
+  numeric world can round-trip back into the typed one (e.g. to profile it).
 
 ## [0.1.1]
 

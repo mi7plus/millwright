@@ -47,6 +47,11 @@ use crate::traits::ParamValue;
 #[cfg(feature = "model-selection")]
 use pyo3::types::{PyAnyMethods, PyDict, PyDictMethods};
 
+#[cfg(feature = "eda")]
+use crate::profile::Profile;
+#[cfg(feature = "eda")]
+use crate::table::Table;
+
 fn to_py_err(e: Error) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
@@ -67,10 +72,28 @@ fn frame_arg(data: &Bound<'_, PyAny>) -> PyResult<Frame> {
     if let Ok(f) = data.extract::<PyFrame>() {
         return Ok(f.inner);
     }
+    #[cfg(feature = "eda")]
+    if let Ok(t) = data.extract::<PyTable>() {
+        return t.inner.to_frame().map_err(to_py_err);
+    }
     let rows: Vec<Vec<f64>> = data.extract().map_err(|_| {
-        PyValueError::new_err("expected a millwright.Frame or a list[list[float]] of rows")
+        PyValueError::new_err("expected a millwright.Frame, millwright.Table, or list[list[float]]")
     })?;
     frame_from_rows(rows)
+}
+
+/// Coerce a Python argument (a `Table` or a `Frame`) into a Rust [`Table`].
+#[cfg(feature = "eda")]
+fn table_arg(data: &Bound<'_, PyAny>) -> PyResult<Table> {
+    if let Ok(t) = data.extract::<PyTable>() {
+        return Ok(t.inner);
+    }
+    if let Ok(f) = data.extract::<PyFrame>() {
+        return Table::from_frame(&f.inner).map_err(to_py_err);
+    }
+    Err(PyValueError::new_err(
+        "expected a millwright.Table or millwright.Frame",
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +156,105 @@ impl PyFrame {
     fn __repr__(&self) -> String {
         let (r, c) = self.inner.shape();
         format!("Frame({r} rows x {c} cols)")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Table & Profile — dtype-aware ingest and automated EDA (feature: eda).
+// ---------------------------------------------------------------------------
+
+/// A raw, dtype-aware table (strings, categories, dates, nulls) read from CSV
+/// or Parquet — the front of the lifecycle, before it lowers to a numeric
+/// `Frame`.
+#[cfg(feature = "eda")]
+#[pyclass(name = "Table")]
+#[derive(Clone)]
+struct PyTable {
+    inner: Table,
+}
+
+#[cfg(feature = "eda")]
+#[pymethods]
+impl PyTable {
+    /// Read a CSV file, inferring the schema.
+    #[staticmethod]
+    fn from_csv(path: String) -> PyResult<Self> {
+        Ok(Self {
+            inner: Table::from_csv(path).map_err(to_py_err)?,
+        })
+    }
+
+    /// Read a Parquet file.
+    #[staticmethod]
+    fn from_parquet(path: String) -> PyResult<Self> {
+        Ok(Self {
+            inner: Table::from_parquet(path).map_err(to_py_err)?,
+        })
+    }
+
+    /// Build a numeric table from a `Frame`.
+    #[staticmethod]
+    fn from_frame(frame: &PyFrame) -> PyResult<Self> {
+        Ok(Self {
+            inner: Table::from_frame(&frame.inner).map_err(to_py_err)?,
+        })
+    }
+
+    /// Lower to a numeric `Frame` (categoricals one-hot encoded).
+    fn to_frame(&self) -> PyResult<PyFrame> {
+        Ok(PyFrame {
+            inner: self.inner.to_frame().map_err(to_py_err)?,
+        })
+    }
+
+    /// `(rows, columns)`.
+    #[getter]
+    fn shape(&self) -> (usize, usize) {
+        self.inner.shape()
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.nrows()
+    }
+
+    fn __repr__(&self) -> String {
+        let (r, c) = self.inner.shape();
+        format!("Table({r} rows x {c} cols)")
+    }
+}
+
+/// Automated EDA over a `Table` (or `Frame`): typed per-column summaries,
+/// alerts, and a suggested preprocessing pipeline — rendered to an HTML report.
+#[cfg(feature = "eda")]
+#[pyclass(name = "Profile")]
+struct PyProfile {
+    inner: Profile,
+}
+
+#[cfg(feature = "eda")]
+#[pymethods]
+impl PyProfile {
+    /// Profile a `Table` or a `Frame`.
+    #[staticmethod]
+    fn of(data: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let table = table_arg(data)?;
+        Ok(Self {
+            inner: Profile::of(&table).map_err(to_py_err)?,
+        })
+    }
+
+    /// Profile with a known target column (enables target-aware alerts).
+    #[staticmethod]
+    fn of_with_target(data: &Bound<'_, PyAny>, target: &str) -> PyResult<Self> {
+        let table = table_arg(data)?;
+        Ok(Self {
+            inner: Profile::of_with_target(&table, target).map_err(to_py_err)?,
+        })
+    }
+
+    /// Write the EDA report to an HTML file.
+    fn to_html(&self, path: String) -> PyResult<()> {
+        self.inner.to_html(path).map_err(to_py_err)
     }
 }
 
@@ -754,6 +876,11 @@ fn version() -> &'static str {
 fn millwright(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFrame>()?;
     m.add_class::<PyPipeline>()?;
+    #[cfg(feature = "eda")]
+    {
+        m.add_class::<PyTable>()?;
+        m.add_class::<PyProfile>()?;
+    }
     m.add_class::<PyStandardScaler>()?;
     m.add_class::<PyMinMaxScaler>()?;
     m.add_class::<PySimpleImputer>()?;

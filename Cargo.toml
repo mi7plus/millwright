@@ -151,7 +151,7 @@ onnx = [
 # Deliberately NOT part of `full`: pyo3's `extension-module` defers libpython
 # symbols, so a plain `cargo test`/`clippy` cannot link a test binary with it.
 # Build & test this feature through maturin instead (see pyproject.toml).
-python = ["dep:pyo3", "smartcore-backend", "model-selection", "explain", "onnx"]
+python = ["dep:pyo3", "smartcore-backend", "model-selection", "explain", "onnx", "eda"]
 
 # Phase 5 · OPERATIONS — past where scikit-learn stops.
 # A versioned model registry: content-addressed ONNX artifact + metadata +

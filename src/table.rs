@@ -96,6 +96,18 @@ impl Table {
         Table { df }
     }
 
+    /// Build a numeric table from a [`Frame`] — one `Float64` column per
+    /// feature. Lets the numeric world round-trip back into the typed one, e.g.
+    /// to profile a computed matrix (or a Python `Frame`).
+    pub fn from_frame(frame: &Frame) -> Result<Table> {
+        let names = frame.columns();
+        let columns: Vec<Column> = (0..frame.ncols())
+            .map(|j| Column::new(names[j].as_str().into(), frame.column(j)))
+            .collect();
+        let df = DataFrame::new(frame.nrows(), columns).map_err(polars_err)?;
+        Ok(Table { df })
+    }
+
     /// Borrow the underlying polars `DataFrame`.
     pub fn as_polars(&self) -> &DataFrame {
         &self.df
@@ -345,6 +357,18 @@ mod tests {
         )
         .unwrap();
         Table::from_polars(df)
+    }
+
+    #[test]
+    fn from_frame_round_trips_numeric() {
+        let f = Frame::from_rows(
+            vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]],
+            vec!["a".into(), "b".into()],
+        )
+        .unwrap();
+        let t = Table::from_frame(&f).unwrap();
+        assert_eq!(t.shape(), (3, 2));
+        assert_eq!(t.to_frame().unwrap().as_rows(), f.as_rows());
     }
 
     #[test]
