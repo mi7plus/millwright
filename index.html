@@ -588,29 +588,25 @@ best.export_onnx(<span class="s">"model.onnx"</span>)?;          <span class="c"
           <h3>The same pipeline, from Python</h3>
           <pre><span class="k">import</span> millwright <span class="k">as</span> mw
 
-train = mw.Frame.from_pandas(df)          <span class="c"># or from_polars / from_numpy</span>
-
-mw.Profile.of(train).to_html(<span class="s">"eda.html"</span>)  <span class="c"># same EDA, Rust speed</span>
+train = mw.Frame.from_pandas(df)             <span class="c"># or from_numpy / from_rows / a mw.Table</span>
+mw.Profile.of(train).to_html(<span class="s">"eda.html"</span>)     <span class="c"># automated EDA, in Rust</span>
 
 pipe = (mw.Pipeline()
-    .step(<span class="s">"impute"</span>, mw.SimpleImputer.median())
-    .step(<span class="s">"scale"</span>,  mw.StandardScaler())
-    .estimator(<span class="s">"rf"</span>, mw.RandomForest()))
+    .step(<span class="s">"scale"</span>, mw.StandardScaler())
+    .estimator(<span class="s">"rf"</span>, mw.RandomForest(n_trees=<span class="k">200</span>, max_depth=<span class="k">8</span>)))
 
-model = (mw.GridSearch(pipe, {<span class="s">"rf__max_depth"</span>: [<span class="k">4</span>, <span class="k">8</span>, <span class="k">16</span>]})
-    .cv(mw.StratifiedKFold(<span class="k">5</span>))
-    .fit(train))
-
-model.explain(mw.Explainer.kernel(), test)  <span class="c"># shap-rs</span>
-model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="c"># serve anywhere</span></pre>
+pipe.fit(train, y_train)
+pipe.evaluate(test, y_test)                  <span class="c"># {"accuracy": ..., "f1": ...}</span>
+pipe.explain(test)                           <span class="c"># SHAP feature ranking (shap-rs)</span>
+pipe.export_onnx(<span class="s">"churn.onnx"</span>)               <span class="c"># one portable ONNX artifact</span></pre>
         </div>
         <div>
           <h3>How it fits</h3>
           <ul class="clean">
-            <li><b>pyo3 bindings.</b> <code class="inl">pip install millwright</code> — a Pythonic pipeline over the Rust core, shipped as an abi3 wheel. <span class="mono">numpy</span> / <span class="mono">pandas</span> interop is the next step.</li>
-            <li><b>ONNX both directions.</b> Consume scikit-learn or PyTorch models (exported to ONNX, run through <span class="mono">tract</span>) as pipeline steps — and export Millwright pipelines to ONNX for any Python serving stack.</li>
-            <li><b>One codebase, not a fork.</b> The Python API is a thin binding over the same Rust traits — no duplicated logic, no drift. It lives behind the <code class="inl">python</code> feature.</li>
-            <li><b>Notebook-native both ways.</b> Usable from Jupyter (Python) for the data-science mainstream, while the guide's evcxr notebooks stay the Rust reference.</li>
+            <li><b>pyo3 bindings.</b> <code class="inl">pip install millwright</code> — a Pythonic pipeline over the Rust core, shipped as an abi3 wheel. Reads <span class="mono">numpy</span> arrays and <span class="mono">pandas</span> DataFrames directly.</li>
+            <li><b>The whole lifecycle.</b> Dtype-aware EDA (<code class="inl">mw.Table</code> / <code class="inl">mw.Profile</code>), grid + stratified-CV search (<code class="inl">mw.GridSearch</code>), SHAP (<code class="inl">explain</code>) and ONNX export — the same engines as Rust, in one wheel.</li>
+            <li><b>ONNX both directions.</b> Export a Millwright pipeline to ONNX for any serving stack — and consume a scikit-learn / PyTorch model (exported to ONNX, run through <span class="mono">tract</span>) as a pipeline step via <code class="inl">mw.OnnxModel</code>.</li>
+            <li><b>One codebase, not a fork.</b> The Python API is a thin binding over the same Rust types — no duplicated logic, no drift. It lives behind the <code class="inl">python</code> feature.</li>
           </ul>
         </div>
       </div>

@@ -509,18 +509,26 @@ impl PyPipeline {
         }
     }
 
-    /// Add a named transformer step from a transformer object.
-    fn step(&mut self, name: String, transformer: &Bound<'_, PyAny>) -> PyResult<()> {
-        let pipe = std::mem::take(&mut self.inner);
-        self.inner = add_transformer(pipe, name, transformer)?;
-        Ok(())
+    /// Add a named transformer step from a transformer object (chainable).
+    fn step<'a>(
+        mut slf: PyRefMut<'a, Self>,
+        name: String,
+        transformer: &Bound<'_, PyAny>,
+    ) -> PyResult<PyRefMut<'a, Self>> {
+        let pipe = std::mem::take(&mut slf.inner);
+        slf.inner = add_transformer(pipe, name, transformer)?;
+        Ok(slf)
     }
 
-    /// Set the final estimator from an estimator object.
-    fn estimator(&mut self, name: String, estimator: &Bound<'_, PyAny>) -> PyResult<()> {
-        let pipe = std::mem::take(&mut self.inner);
-        self.inner = set_estimator(pipe, name, estimator)?;
-        Ok(())
+    /// Set the final estimator from an estimator object (chainable).
+    fn estimator<'a>(
+        mut slf: PyRefMut<'a, Self>,
+        name: String,
+        estimator: &Bound<'_, PyAny>,
+    ) -> PyResult<PyRefMut<'a, Self>> {
+        let pipe = std::mem::take(&mut slf.inner);
+        slf.inner = set_estimator(pipe, name, estimator)?;
+        Ok(slf)
     }
 
     // ---- convenience builders (kept for back-compat) --------------------
