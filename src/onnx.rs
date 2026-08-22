@@ -159,6 +159,35 @@ impl InferenceModel {
     }
 }
 
+// A loaded ONNX model is already trained, so it slots into a `Pipeline` as a
+// frozen estimator: `fit` is a no-op, `predict` runs the graph. This is how an
+// external scikit-learn / PyTorch model (exported to ONNX) becomes a pipeline
+// step behind Millwright's own preprocessing.
+impl Clone for InferenceModel {
+    fn clone(&self) -> Self {
+        Self {
+            plan: self.plan.clone(),
+        }
+    }
+}
+
+impl crate::traits::Estimator for InferenceModel {
+    fn name(&self) -> &'static str {
+        "InferenceModel"
+    }
+
+    /// No-op: the model arrives already trained.
+    fn fit(&mut self, _dataset: &crate::frame::Dataset) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl crate::traits::Predictor for InferenceModel {
+    fn predict(&self, frame: &Frame) -> Result<Vec<f64>> {
+        InferenceModel::predict(self, frame)
+    }
+}
+
 #[cfg(all(test, feature = "smartcore-backend"))]
 mod tests {
     use super::*;
@@ -266,6 +295,33 @@ mod tests {
         for (a, b) in native.iter().zip(&via_onnx) {
             assert!((a - b).abs() < 1e-3, "native {a} vs onnx {b}");
         }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn inference_model_serves_as_a_pipeline_estimator() {
+        use crate::backends::smartcore::LinearRegression;
+        use crate::pipeline::Pipeline;
+
+        // Train and export an external model...
+        let rows: Vec<Vec<f64>> = (0..15).map(|i| vec![i as f64, (i % 4) as f64]).collect();
+        let y: Vec<f64> = rows.iter().map(|r| 2.0 * r[0] + 3.0 * r[1] + 1.0).collect();
+        let cols = vec!["x1".to_string(), "x2".to_string()];
+        let ds = Dataset::new(Frame::from_rows(rows, cols.clone()).unwrap(), y).unwrap();
+        let mut lr = LinearRegression::new();
+        lr.fit(&ds).unwrap();
+        let path = scratch("pipe_estimator");
+        lr.export_onnx(&path).unwrap();
+
+        // ...then load it back and drop it in as a pipeline's (frozen) estimator.
+        let onnx = InferenceModel::load(&path).unwrap();
+        let mut pipe = Pipeline::new().estimator("onnx", onnx);
+        pipe.fit(&ds).unwrap(); // no-op fit — the model is already trained
+        let probe = Frame::from_rows(vec![vec![20.0, 1.0]], cols).unwrap();
+
+        let via_pipe = pipe.predict(&probe).unwrap();
+        let direct = InferenceModel::load(&path).unwrap().predict(&probe).unwrap();
+        assert!((via_pipe[0] - direct[0]).abs() < 1e-4);
         let _ = std::fs::remove_file(&path);
     }
 }

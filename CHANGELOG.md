@@ -16,6 +16,12 @@ All notable changes to Millwright are recorded here. The format follows
   (`Explainer.kernel()` configurable), and **`pipeline.export_onnx(path)`**
   writes the fitted pipeline to a single ONNX file. The `python` wheel now
   bundles the `model-selection`, `explain`, and `onnx` engines.
+- **Python: `GridSearch` / `KFold` / `StratifiedKFold`** over a pipeline, with
+  a `SearchResult` (`best_score`, `best_params()`, `predict()`).
+- **`InferenceModel` is now an `Estimator` + `Predictor`**, so a pre-trained
+  ONNX model (from scikit-learn, PyTorch, …) can be dropped into a `Pipeline`
+  as a frozen estimator behind Millwright's preprocessing — in Rust and, via
+  `mw.OnnxModel(path)`, from Python.
 
 ## [0.1.1]
 

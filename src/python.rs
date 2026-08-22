@@ -237,6 +237,23 @@ impl PyLinearRegression {
     }
 }
 
+/// A pre-trained ONNX model (e.g. exported from scikit-learn or PyTorch), used
+/// as a pipeline's frozen estimator behind Millwright's preprocessing steps.
+#[cfg(feature = "onnx")]
+#[pyclass(name = "OnnxModel")]
+#[derive(Clone)]
+struct PyOnnxModel {
+    path: String,
+}
+#[cfg(feature = "onnx")]
+#[pymethods]
+impl PyOnnxModel {
+    #[new]
+    fn new(path: String) -> Self {
+        Self { path }
+    }
+}
+
 /// Lower a Python transformer object onto the pipeline as a named step.
 fn add_transformer(
     pipe: CorePipeline,
@@ -282,8 +299,13 @@ fn set_estimator(
     if obj.extract::<PyLinearRegression>().is_ok() {
         return Ok(pipe.estimator(name, LinearRegression::new()));
     }
+    #[cfg(feature = "onnx")]
+    if let Ok(m) = obj.extract::<PyOnnxModel>() {
+        let model = crate::onnx::InferenceModel::load(&m.path).map_err(to_py_err)?;
+        return Ok(pipe.estimator(name, model));
+    }
     Err(PyValueError::new_err(
-        "estimator expects an estimator object (RandomForest, LinearRegression)",
+        "estimator expects an estimator object (RandomForest, LinearRegression, OnnxModel)",
     ))
 }
 
@@ -738,6 +760,8 @@ fn millwright(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyOneHotEncoder>()?;
     m.add_class::<PyRandomForest>()?;
     m.add_class::<PyLinearRegression>()?;
+    #[cfg(feature = "onnx")]
+    m.add_class::<PyOnnxModel>()?;
     #[cfg(feature = "explain")]
     m.add_class::<PyExplainer>()?;
     #[cfg(feature = "model-selection")]
