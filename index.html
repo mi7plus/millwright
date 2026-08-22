@@ -485,11 +485,12 @@ profile.to_html(<span class="s">"eda_report.html"</span>)?;         <span class=
         <p class="muted">Because every model is a <code class="inl">Predictor</code>, combining them is just another <code class="inl">Predictor</code> that holds several — no new machinery. And the trait is backend-agnostic, so a <span class="mono">linfa</span> model, a <span class="mono">smartcore</span> forest, and a <span class="mono">chronos-ts</span> forecaster can sit in one ensemble. scikit-learn can only ensemble scikit-learn.</p>
       </div>
 
-      <h3>Three ways to combine</h3>
+      <h3>Four ways to combine</h3>
       <div class="edagrid">
         <div class="acard"><div class="lab">Voting</div><p>Hard (majority) or soft (mean-probability) vote over several fitted models — the quickest lift over any single one.</p></div>
         <div class="acard"><div class="lab">Stacking</div><p>A meta-learner trained on the base models' <em>out-of-fold</em> predictions — leak-free, because the CV engine supplies the folds.</p></div>
-        <div class="acard"><div class="lab">Bagging</div><p>Bootstrap-resample, fit a base estimator per sample in parallel, aggregate — and it works for <em>any</em> estimator, not just trees.</p></div>
+        <div class="acard"><div class="lab">Bagging</div><p>Bootstrap-resample, fit a base estimator per sample (in parallel over rayon), aggregate — and it works for <em>any</em> estimator, not just trees.</p></div>
+        <div class="acard"><div class="lab">Boosting</div><p>SAMME adaptive boosting: fit weak learners in sequence, each reweighted toward the last round's mistakes, then an <span class="mono">alpha</span>-weighted vote.</p></div>
       </div>
 
       <div class="grid2">
@@ -507,8 +508,11 @@ profile.to_html(<span class="s">"eda_report.html"</span>)?;         <span class=
     .base(<span class="s">"knn"</span>, <span class="f">Knn</span>::k(<span class="k">15</span>))
     .cv(<span class="f">StratifiedKFold</span>::new(<span class="k">5</span>));       <span class="c">// model-selection-rs</span>
 
-<span class="c">// bag any estimator, fanned out over rayon</span>
-<span class="k">let</span> bag = <span class="f">Bagging</span>::of(<span class="f">Svc</span>::rbf()).n_estimators(<span class="k">50</span>).parallel();
+<span class="c">// bag any estimator — bootstrap resamples fit in parallel, then aggregate</span>
+<span class="k">let</span> bag = <span class="f">Bagging</span>::of(<span class="f">Svc</span>::rbf()).n_estimators(<span class="k">50</span>);
+
+<span class="c">// boost weak stumps — SAMME adaptive boosting</span>
+<span class="k">let</span> boost = <span class="f">Boosting</span>::of(<span class="f">RandomForest</span>::new().max_depth(<span class="k">1</span>)).n_estimators(<span class="k">100</span>);
 
 <span class="c">// an ensemble IS an estimator — tune a member straight through it</span>
 <span class="k">let</span> model = <span class="f">GridSearch</span>::new(stack, grid! { <span class="s">"rf__max_depth"</span> =&gt; [<span class="k">8</span>, <span class="k">16</span>] })
@@ -540,7 +544,7 @@ profile.to_html(<span class="s">"eda_report.html"</span>)?;         <span class=
       <h3>What it searches</h3>
       <div class="edagrid">
         <div class="acard"><div class="lab">Preprocessing</div><p>Imputation, encoding, scaling strategies — <em>seeded</em> by the <code class="inl">Profile</code>'s alerts, not brute-forced blind.</p></div>
-        <div class="acard"><div class="lab">Model zoo</div><p>Linear · KNN · SVM · forests · boosting — across backends, all behind the one <code class="inl">Estimator</code> contract.</p></div>
+        <div class="acard"><div class="lab">Model zoo</div><p>Linear · logistic · KNN · SVM · naive Bayes · forests — across backends, all behind the one <code class="inl">Estimator</code> contract.</p></div>
         <div class="acard"><div class="lab">Hyperparameters</div><p>TPE / Bayesian search per candidate (<span class="mono">hyperopt-rs</span>), every fit scored by the CV engine.</p></div>
         <div class="acard"><div class="lab">Auto-ensemble</div><p>Stack the top-<em>k</em> candidates into a final blend — the auto-sklearn move, using the ensemble core.</p></div>
       </div>
@@ -556,7 +560,7 @@ profile.to_html(<span class="s">"eda_report.html"</span>)?;         <span class=
     .fit(&amp;train)?;
 
 <span class="f">println!</span>(<span class="s">"{}"</span>, result.leaderboard());     <span class="c">// ranked pipelines + scores</span>
-<span class="k">let</span> best = result.best();                 <span class="c">// a normal, fitted Pipeline</span>
+<span class="k">let</span> best = result.best_pipeline();         <span class="c">// the winning Pipeline (if not an ensemble)</span>
 
 <span class="c">// …and it flows straight into the rest of the lifecycle</span>
 best.explain(<span class="f">Explainer</span>::kernel(), &amp;test)?;
