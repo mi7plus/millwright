@@ -110,7 +110,7 @@ pub mod prelude {
     };
 
     #[cfg(feature = "smartcore-backend")]
-    pub use crate::backends::smartcore::{LinearRegression, RandomForest};
+    pub use crate::backends::smartcore::{Knn, LinearRegression, NaiveBayes, RandomForest, Svc};
 
     #[cfg(feature = "linfa-backend")]
     pub use crate::backends::linfa::{Dbscan, GaussianMixture, KMeans, Pca};

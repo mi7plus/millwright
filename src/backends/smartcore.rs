@@ -4,9 +4,11 @@
 //! `Frame -> DenseMatrix` conversion happens here, at the edge, via
 //! [`as_dense`]; nothing above this module ever names a smartcore type.
 //!
-//! Phase 0 adapts two models to prove the contract across a real backend:
+//! The models adapted here prove the contract across a real backend:
 //! - [`RandomForest`] — the classifier from the design brief's API example.
 //! - [`LinearRegression`] — the regression path.
+//! - [`Knn`], [`Svc`], [`NaiveBayes`] — k-nearest-neighbours, a (one-vs-one)
+//!   support vector classifier, and Gaussian naive Bayes.
 
 use std::sync::Arc;
 
@@ -17,6 +19,11 @@ use smartcore::linalg::basic::matrix::DenseMatrix;
 use smartcore::linear::linear_regression::{
     LinearRegression as ScLinearRegression, LinearRegressionParameters,
 };
+use smartcore::metrics::distance::euclidian::Euclidian;
+use smartcore::naive_bayes::gaussian::GaussianNB;
+use smartcore::neighbors::knn_classifier::{KNNClassifier, KNNClassifierParameters};
+use smartcore::svm::svc::{MultiClassSVC, SVCParameters};
+use smartcore::svm::Kernels;
 
 use crate::error::{Error, Result};
 use crate::frame::{Dataset, Frame};
@@ -25,6 +32,15 @@ use crate::traits::{Estimator, ParamValue, Predictor};
 // The concrete smartcore model types, spelled once.
 type ScForest = RandomForestClassifier<f64, i64, DenseMatrix<f64>, Vec<i64>>;
 type ScLinReg = ScLinearRegression<f64, f64, DenseMatrix<f64>, Vec<f64>>;
+type ScKnn = KNNClassifier<f64, i64, DenseMatrix<f64>, Vec<i64>, Euclidian<f64>>;
+type ScNb = GaussianNB<f64, u64, DenseMatrix<f64>, Vec<u64>>;
+type ScSvcParams = SVCParameters<f64, i64, DenseMatrix<f64>, Vec<i64>>;
+type ScMultiSvc = MultiClassSVC<'static, f64, i64, DenseMatrix<f64>, Vec<i64>>;
+
+/// Round a target vector to integer class labels.
+fn int_labels(dataset: &Dataset) -> Vec<i64> {
+    dataset.target().iter().map(|v| v.round() as i64).collect()
+}
 
 /// Convert a [`Frame`] to smartcore's native `DenseMatrix<f64>`.
 ///
@@ -180,6 +196,263 @@ impl Predictor for LinearRegression {
     }
 }
 
+/// A k-nearest-neighbours classifier backed by smartcore (Euclidean distance).
+#[derive(Clone)]
+pub struct Knn {
+    k: usize,
+    model: Option<Arc<ScKnn>>,
+}
+
+impl Knn {
+    /// A KNN classifier with `k = 5`.
+    pub fn new() -> Self {
+        Knn { k: 5, model: None }
+    }
+    /// A KNN classifier with a given number of neighbours.
+    pub fn k(k: usize) -> Self {
+        Knn { k, model: None }
+    }
+}
+
+impl Default for Knn {
+    fn default() -> Self {
+        Knn::new()
+    }
+}
+
+impl Estimator for Knn {
+    fn name(&self) -> &'static str {
+        "Knn"
+    }
+
+    fn fit(&mut self, dataset: &Dataset) -> Result<()> {
+        let x = as_dense(dataset.features())?;
+        let y = int_labels(dataset);
+        let params = KNNClassifierParameters::default().with_k(self.k);
+        let model = KNNClassifier::fit(&x, &y, params)
+            .map_err(|e| Error::Backend(format!("Knn fit failed: {e}")))?;
+        self.model = Some(Arc::new(model));
+        Ok(())
+    }
+
+    fn set_param(&mut self, name: &str, value: ParamValue) -> Result<()> {
+        match name {
+            "k" => self.k = value.as_i64()? as usize,
+            other => return Err(Error::Param(format!("Knn has no parameter '{other}'"))),
+        }
+        Ok(())
+    }
+}
+
+impl Predictor for Knn {
+    fn predict(&self, frame: &Frame) -> Result<Vec<f64>> {
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| Error::NotFitted("Knn::predict".into()))?;
+        let x = as_dense(frame)?;
+        let y = model
+            .predict(&x)
+            .map_err(|e| Error::Backend(format!("Knn predict failed: {e}")))?;
+        Ok(y.into_iter().map(|c| c as f64).collect())
+    }
+}
+
+/// Gaussian naive Bayes, backed by smartcore.
+#[derive(Clone)]
+pub struct NaiveBayes {
+    model: Option<Arc<ScNb>>,
+}
+
+impl NaiveBayes {
+    pub fn new() -> Self {
+        NaiveBayes { model: None }
+    }
+}
+
+impl Default for NaiveBayes {
+    fn default() -> Self {
+        NaiveBayes::new()
+    }
+}
+
+impl Estimator for NaiveBayes {
+    fn name(&self) -> &'static str {
+        "NaiveBayes"
+    }
+
+    fn fit(&mut self, dataset: &Dataset) -> Result<()> {
+        let x = as_dense(dataset.features())?;
+        // smartcore's Gaussian NB wants unsigned class labels.
+        let y: Vec<u64> = dataset
+            .target()
+            .iter()
+            .map(|v| v.round().max(0.0) as u64)
+            .collect();
+        let model = GaussianNB::fit(&x, &y, Default::default())
+            .map_err(|e| Error::Backend(format!("NaiveBayes fit failed: {e}")))?;
+        self.model = Some(Arc::new(model));
+        Ok(())
+    }
+}
+
+impl Predictor for NaiveBayes {
+    fn predict(&self, frame: &Frame) -> Result<Vec<f64>> {
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| Error::NotFitted("NaiveBayes::predict".into()))?;
+        let x = as_dense(frame)?;
+        let y = model
+            .predict(&x)
+            .map_err(|e| Error::Backend(format!("NaiveBayes predict failed: {e}")))?;
+        Ok(y.into_iter().map(|c| c as f64).collect())
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SvcKernel {
+    Linear,
+    Rbf { gamma: f64 },
+}
+
+/// A fitted SVC together with the parameters it borrows.
+///
+/// smartcore's `SVC` binds one lifetime across its inputs, but the fitted model
+/// copies its support vectors and only retains a reference to the *parameters*
+/// (the kernel). This holder owns those parameters at a stable heap address and
+/// keeps them alive for the model's whole life, so the borrow is sound.
+struct FittedSvc {
+    // `model` borrows `_params`; declared first so it is dropped first.
+    model: ScMultiSvc,
+    _params: Box<ScSvcParams>,
+}
+
+impl FittedSvc {
+    fn fit(x: DenseMatrix<f64>, y: Vec<i64>, params: ScSvcParams) -> Result<FittedSvc> {
+        let params = Box::new(params);
+        // SAFETY: `MultiClassSVC` stores only a `&parameters` reference (support
+        // vectors are copied in) and does not retain `x`/`y`. We box `params`
+        // for a stable address, hand `fit` a `'static` view of it, and keep the
+        // box alive for the model's whole life, dropping `model` before
+        // `_params` (field order). `x`/`y` outlive the `fit` call and are not
+        // referenced by the returned model, so widening their borrow for the
+        // call only is sound.
+        let params_ref: &'static ScSvcParams = unsafe { &*(params.as_ref() as *const ScSvcParams) };
+        let x_ref: &'static DenseMatrix<f64> = unsafe { &*(&x as *const DenseMatrix<f64>) };
+        let y_ref: &'static Vec<i64> = unsafe { &*(&y as *const Vec<i64>) };
+        let model = MultiClassSVC::fit(x_ref, y_ref, params_ref)
+            .map_err(|e| Error::Backend(format!("Svc fit failed: {e}")))?;
+        Ok(FittedSvc {
+            model,
+            _params: params,
+        })
+    }
+
+    fn predict(&self, x: &DenseMatrix<f64>) -> Result<Vec<f64>> {
+        self.model
+            .predict(x)
+            .map_err(|e| Error::Backend(format!("Svc predict failed: {e}")))
+    }
+}
+
+// SAFETY: `FittedSvc` is immutable after construction. Its internal reference
+// points into its own boxed `_params` (they move together — no aliasing across
+// the boundary), and smartcore's kernels hold only plain numeric config, so the
+// value is effectively `Send`/`Sync` even though `dyn Kernel` is not bounded as
+// such. This gives `Svc` the same thread-safety as the other backend models.
+unsafe impl Send for FittedSvc {}
+unsafe impl Sync for FittedSvc {}
+
+/// A support vector classifier backed by smartcore (one-vs-one for multiclass).
+#[derive(Clone)]
+pub struct Svc {
+    c: f64,
+    kernel: SvcKernel,
+    fitted: Option<Arc<FittedSvc>>,
+}
+
+impl Svc {
+    /// A linear-kernel SVC (`C = 1`).
+    pub fn new() -> Self {
+        Svc {
+            c: 1.0,
+            kernel: SvcKernel::Linear,
+            fitted: None,
+        }
+    }
+    /// A linear-kernel SVC.
+    pub fn linear() -> Self {
+        Svc::new()
+    }
+    /// An RBF-kernel SVC (default `gamma = 0.5`).
+    pub fn rbf() -> Self {
+        Svc {
+            c: 1.0,
+            kernel: SvcKernel::Rbf { gamma: 0.5 },
+            fitted: None,
+        }
+    }
+    /// Set the regularization parameter `C`.
+    pub fn c(mut self, c: f64) -> Self {
+        self.c = c;
+        self
+    }
+    /// Set the RBF kernel bandwidth `gamma` (switches to an RBF kernel).
+    pub fn gamma(mut self, gamma: f64) -> Self {
+        self.kernel = SvcKernel::Rbf { gamma };
+        self
+    }
+}
+
+impl Default for Svc {
+    fn default() -> Self {
+        Svc::new()
+    }
+}
+
+impl Estimator for Svc {
+    fn name(&self) -> &'static str {
+        "Svc"
+    }
+
+    fn fit(&mut self, dataset: &Dataset) -> Result<()> {
+        let x = as_dense(dataset.features())?;
+        let y = int_labels(dataset);
+        let params = ScSvcParams::default().with_c(self.c);
+        let params = match self.kernel {
+            SvcKernel::Linear => params.with_kernel(Kernels::linear()),
+            SvcKernel::Rbf { gamma } => params.with_kernel(Kernels::rbf().with_gamma(gamma)),
+        };
+        self.fitted = Some(Arc::new(FittedSvc::fit(x, y, params)?));
+        Ok(())
+    }
+
+    fn set_param(&mut self, name: &str, value: ParamValue) -> Result<()> {
+        match name {
+            "c" => self.c = value.as_f64()?,
+            "gamma" => {
+                self.kernel = SvcKernel::Rbf {
+                    gamma: value.as_f64()?,
+                }
+            }
+            other => return Err(Error::Param(format!("Svc has no parameter '{other}'"))),
+        }
+        Ok(())
+    }
+}
+
+impl Predictor for Svc {
+    fn predict(&self, frame: &Frame) -> Result<Vec<f64>> {
+        let fitted = self
+            .fitted
+            .as_ref()
+            .ok_or_else(|| Error::NotFitted("Svc::predict".into()))?;
+        let x = as_dense(frame)?;
+        fitted.predict(&x)
+    }
+}
+
 /// Export a fitted [`RandomForest`] to an ONNX tree-ensemble classifier.
 ///
 /// Uses onnx-export-rs's serde-based compat adapter, so it is independent of the
@@ -286,5 +559,66 @@ mod tests {
         let f = Frame::from_rows(vec![vec![1.0]], vec!["x".into()]).unwrap();
         assert!(RandomForest::new().predict(&f).is_err());
         assert!(LinearRegression::new().predict(&f).is_err());
+        assert!(Knn::new().predict(&f).is_err());
+        assert!(Svc::new().predict(&f).is_err());
+        assert!(NaiveBayes::new().predict(&f).is_err());
+    }
+
+    // Two separable clusters shared by the classifier tests below.
+    fn two_clusters() -> (Dataset, Frame) {
+        let mut rows = Vec::new();
+        let mut y = Vec::new();
+        for i in 0..12 {
+            rows.push(vec![i as f64 * 0.1, i as f64 * 0.1]);
+            y.push(0.0);
+            rows.push(vec![9.0 + i as f64 * 0.1, 9.0 + i as f64 * 0.1]);
+            y.push(1.0);
+        }
+        let cols = vec!["a".to_string(), "b".to_string()];
+        let ds = Dataset::new(Frame::from_rows(rows, cols.clone()).unwrap(), y).unwrap();
+        let probe = Frame::from_rows(vec![vec![0.2, 0.1], vec![9.2, 9.1]], cols).unwrap();
+        (ds, probe)
+    }
+
+    #[test]
+    fn knn_separates_two_clusters() {
+        let (ds, probe) = two_clusters();
+        let mut m = Knn::k(3);
+        m.fit(&ds).unwrap();
+        assert_eq!(m.predict(&probe).unwrap(), vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn svc_separates_two_clusters() {
+        let (ds, probe) = two_clusters();
+        for mut m in [Svc::linear(), Svc::rbf()] {
+            m.fit(&ds).unwrap();
+            assert_eq!(m.predict(&probe).unwrap(), vec![0.0, 1.0], "kernel differs");
+        }
+    }
+
+    #[test]
+    fn naive_bayes_separates_two_clusters() {
+        let (ds, probe) = two_clusters();
+        let mut m = NaiveBayes::new();
+        m.fit(&ds).unwrap();
+        assert_eq!(m.predict(&probe).unwrap(), vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn svc_survives_drop_after_fit() {
+        // Exercises the self-referential holder: the frame the model was fit on
+        // is dropped, then we still predict.
+        let mut m = Svc::rbf();
+        {
+            let (ds, _) = two_clusters();
+            m.fit(&ds).unwrap();
+        } // ds dropped here
+        let probe = Frame::from_rows(
+            vec![vec![0.2, 0.1], vec![9.2, 9.1]],
+            vec!["a".into(), "b".into()],
+        )
+        .unwrap();
+        assert_eq!(m.predict(&probe).unwrap(), vec![0.0, 1.0]);
     }
 }
