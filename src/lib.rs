@@ -36,7 +36,7 @@
 //!
 //! let mut pipe = Pipeline::new()
 //!     .step("scale", StandardScaler::new())
-//!     .estimator("rf", RandomForest::new());
+//!     .estimator("lr", LogisticRegression::new()); // a core, probability-capable model
 //!
 //! pipe.fit(&train)?;
 //! let preds = pipe.predict(&x)?;
@@ -49,6 +49,7 @@ pub mod backends;
 pub mod error;
 pub mod evaluate;
 pub mod frame;
+pub mod logistic;
 pub mod pipeline;
 pub mod traits;
 pub mod transform;
@@ -97,6 +98,7 @@ pub mod prelude {
     pub use crate::error::{Error, Result};
     pub use crate::evaluate::{Evaluate, Report, Task};
     pub use crate::frame::{Dataset, Frame};
+    pub use crate::logistic::LogisticRegression;
     pub use crate::pipeline::Pipeline;
     pub use crate::traits::{
         Balancer, Clusterer, Estimator, Forecaster, Model, ParamValue, PartialFit, Predictor,
@@ -136,11 +138,12 @@ pub mod prelude {
 
     #[cfg(feature = "calibration")]
     pub use crate::calibration::{
-        reliability_curve, IsotonicRegression, PlattScaling, ReliabilityBin,
+        reliability_curve, CalibratedClassifier, CalibrationMethod, IsotonicRegression,
+        PlattScaling, ReliabilityBin,
     };
 
     #[cfg(feature = "anomaly")]
-    pub use crate::anomaly::{KnnScore, Mahalanobis};
+    pub use crate::anomaly::{KnnScore, Mahalanobis, OutlierDetector};
 
     #[cfg(feature = "eda")]
     pub use crate::profile::{Alert, ColumnProfile, Profile, TargetKind, TargetProfile};

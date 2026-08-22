@@ -115,6 +115,7 @@ fn golden_one_hot_encoder() {
 // Deterministic estimator — OLS recovers a known plane exactly.
 // --------------------------------------------------------------------------
 
+#[cfg(feature = "smartcore-backend")]
 #[test]
 fn golden_linear_regression_plane() {
     // y = 3 + 2*x1 - 1*x2, sampled at points that identify the plane.
@@ -180,6 +181,7 @@ fn golden_classification_report() {
 // --------------------------------------------------------------------------
 
 /// Two tight, well-separated clusters and a two-row probe straddling them.
+#[cfg(feature = "smartcore-backend")]
 fn two_clusters() -> (Dataset, Frame) {
     let cols = vec!["a".to_string(), "b".to_string()];
     let features = Frame::from_rows(
@@ -199,6 +201,7 @@ fn two_clusters() -> (Dataset, Frame) {
     (train, probe)
 }
 
+#[cfg(feature = "smartcore-backend")]
 #[test]
 fn golden_random_forest_labels() {
     let (train, probe) = two_clusters();
@@ -207,6 +210,7 @@ fn golden_random_forest_labels() {
     close_vec(&rf.predict(&probe).unwrap(), &[0.0, 1.0]);
 }
 
+#[cfg(feature = "smartcore-backend")]
 #[test]
 fn golden_pipeline_labels() {
     let (train, probe) = two_clusters();
@@ -218,6 +222,7 @@ fn golden_pipeline_labels() {
     close_vec(&pipe.predict(&probe).unwrap(), &[0.0, 1.0]);
 }
 
+#[cfg(all(feature = "ensemble", feature = "smartcore-backend"))]
 #[test]
 fn golden_soft_vote_labels() {
     let (train, probe) = two_clusters();

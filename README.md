@@ -69,11 +69,13 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
 - **Report figures** (`src/viz.rs`, via [`plotters-statistical`], feature `viz`):
   `viz::roc_svg(...)` and `viz::residuals_svg(...)` render self-contained SVGs
   (pure-Rust backend, no system fonts).
-- **Calibration** (`src/calibration.rs`, core, feature `calibration`):
-  `PlattScaling` / `IsotonicRegression` turn raw scores into calibrated
-  probabilities, with `reliability_curve` for a reliability diagram.
-- **Anomaly detection** (`src/anomaly.rs`, core, feature `anomaly`):
-  `Mahalanobis` and `KnnScore` unsupervised outlier scorers.
+- **Probabilities** (`src/logistic.rs`, core): `LogisticRegression` is a native,
+  probability-capable classifier — the first real `ProbaPredictor`.
+- **Calibration** (`src/calibration.rs`, feature `calibration`): `PlattScaling` /
+  `IsotonicRegression` and `reliability_curve`, plus `CalibratedClassifier`,
+  which wraps any `ProbaPredictor` and returns calibrated probabilities.
+- **Anomaly detection** (`src/anomaly.rs`, feature `anomaly`): `Mahalanobis` and
+  `KnnScore`, unified behind an `OutlierDetector` trait.
 
 [`imbalance-rs`]: https://crates.io/crates/imbalance-rs
 [`model-selection-rs`]: https://crates.io/crates/model-selection-rs
@@ -189,7 +191,7 @@ single-author engine crates.
   transforms, metric formulas), well-separated class labels for the stochastic
   ones. An engine bump that moves a number shows up as a diff.
 - **Feature-matrix CI** (`.github/workflows/ci.yml`): `fmt`, `clippy -D warnings`,
-  docs, an MSRV (1.80) build, and the test suite across the feature matrix — from
+  docs, an MSRV (1.91) build, and the test suite across the feature matrix — from
   `--no-default-features` through each feature to `full`, plus Windows/macOS on
   the default install and a maturin wheel for Python.
 - **The tutorial** ([`GUIDE.md`](GUIDE.md) + [`guide.html`](guide.html)): the
@@ -254,6 +256,10 @@ cargo run --example spine
 
 ```bash
 cargo run --example explore --features "eda smartcore-backend"
+```
+
+```bash
+cargo run --example trust --features "calibration anomaly"
 ```
 
 ```bash

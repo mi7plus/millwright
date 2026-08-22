@@ -8,6 +8,8 @@
 //! model — so they calibrate a soft-vote, a decision function, or any score.
 
 use crate::error::{Error, Result};
+use crate::frame::{Dataset, Frame};
+use crate::traits::{Predictor, ProbaPredictor};
 
 fn sigmoid(z: f64) -> f64 {
     1.0 / (1.0 + (-z).exp())
@@ -151,6 +153,133 @@ pub fn reliability_curve(probs: &[f64], labels: &[f64], bins: usize) -> Vec<Reli
         .collect()
 }
 
+/// Which calibration map a [`CalibratedClassifier`] fits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CalibrationMethod {
+    /// Logistic [`PlattScaling`].
+    Platt,
+    /// Non-parametric [`IsotonicRegression`].
+    Isotonic,
+}
+
+/// Wrap a fitted binary [`ProbaPredictor`] and map its positive-class scores
+/// through a fitted calibrator, so `predict_proba` returns probabilities that
+/// mean what they say. This is the framework-native form of calibration: a
+/// `CalibratedClassifier` is itself a [`ProbaPredictor`], so it composes.
+///
+/// Fit the calibrator on a *held-out* set for the best results — calibrating on
+/// the same data the inner model trained on is optimistic.
+pub struct CalibratedClassifier<M: ProbaPredictor> {
+    inner: M,
+    method: CalibrationMethod,
+    platt: Option<PlattScaling>,
+    iso: Option<IsotonicRegression>,
+    neg: f64,
+    pos: f64,
+    fitted: bool,
+}
+
+impl<M: ProbaPredictor> CalibratedClassifier<M> {
+    /// Calibrate `inner` with Platt scaling.
+    pub fn platt(inner: M) -> Self {
+        CalibratedClassifier::with(inner, CalibrationMethod::Platt)
+    }
+
+    /// Calibrate `inner` with isotonic regression.
+    pub fn isotonic(inner: M) -> Self {
+        CalibratedClassifier::with(inner, CalibrationMethod::Isotonic)
+    }
+
+    fn with(inner: M, method: CalibrationMethod) -> Self {
+        CalibratedClassifier {
+            inner,
+            method,
+            platt: None,
+            iso: None,
+            neg: 0.0,
+            pos: 1.0,
+            fitted: false,
+        }
+    }
+
+    /// The inner model's positive-class (last-column) scores.
+    fn positive_scores(&self, frame: &Frame) -> Result<Vec<f64>> {
+        let proba = self.inner.predict_proba(frame)?;
+        Ok(proba.column(proba.ncols() - 1))
+    }
+
+    fn calibrate(&self, scores: &[f64]) -> Result<Vec<f64>> {
+        match self.method {
+            CalibrationMethod::Platt => self
+                .platt
+                .as_ref()
+                .map(|c| c.transform(scores))
+                .ok_or_else(|| Error::NotFitted("CalibratedClassifier".into())),
+            CalibrationMethod::Isotonic => self
+                .iso
+                .as_ref()
+                .map(|c| c.transform(scores))
+                .ok_or_else(|| Error::NotFitted("CalibratedClassifier".into())),
+        }
+    }
+
+    /// Fit the calibration map from a labelled (ideally held-out) dataset. The
+    /// inner model must already be fitted; the target must be binary.
+    pub fn fit(mut self, data: &Dataset) -> Result<Self> {
+        let mut classes: Vec<f64> = data.target().to_vec();
+        classes.sort_by(f64::total_cmp);
+        classes.dedup();
+        if classes.len() != 2 {
+            return Err(Error::Pipeline(format!(
+                "CalibratedClassifier is binary; found {} classes",
+                classes.len()
+            )));
+        }
+        self.neg = classes[0];
+        self.pos = classes[1];
+
+        let scores = self.positive_scores(data.features())?;
+        let y: Vec<f64> = data
+            .target()
+            .iter()
+            .map(|v| if *v == self.pos { 1.0 } else { 0.0 })
+            .collect();
+        match self.method {
+            CalibrationMethod::Platt => self.platt = Some(PlattScaling::fit(&scores, &y)?),
+            CalibrationMethod::Isotonic => self.iso = Some(IsotonicRegression::fit(&scores, &y)?),
+        }
+        self.fitted = true;
+        Ok(self)
+    }
+}
+
+impl<M: ProbaPredictor> Predictor for CalibratedClassifier<M> {
+    fn predict(&self, frame: &Frame) -> Result<Vec<f64>> {
+        let cal = self.calibrate(&self.positive_scores(frame)?)?;
+        Ok(cal
+            .into_iter()
+            .map(|p| if p >= 0.5 { self.pos } else { self.neg })
+            .collect())
+    }
+}
+
+impl<M: ProbaPredictor> ProbaPredictor for CalibratedClassifier<M> {
+    fn predict_proba(&self, frame: &Frame) -> Result<Frame> {
+        let cal = self.calibrate(&self.positive_scores(frame)?)?;
+        let cols = vec![
+            format!("p{}", self.neg as i64),
+            format!("p{}", self.pos as i64),
+        ];
+        let n = frame.nrows();
+        let mut buf = Vec::with_capacity(n * 2);
+        for p in cal {
+            buf.push(1.0 - p);
+            buf.push(p);
+        }
+        Frame::new(buf, n, 2, cols)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +320,31 @@ mod tests {
         // low-prob bin is all negatives, high-prob bin all positives
         assert_eq!(curve.first().unwrap().fraction_positive, 0.0);
         assert_eq!(curve.last().unwrap().fraction_positive, 1.0);
+    }
+
+    #[test]
+    fn calibrated_classifier_wraps_a_proba_model() {
+        use crate::logistic::LogisticRegression;
+        use crate::traits::Estimator;
+
+        let rows: Vec<Vec<f64>> = [-3.0, -2.0, -1.0, 1.0, 2.0, 3.0]
+            .iter()
+            .map(|&x| vec![x])
+            .collect();
+        let ds = Dataset::new(
+            Frame::from_rows(rows, vec!["x".into()]).unwrap(),
+            vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        )
+        .unwrap();
+        let mut inner = LogisticRegression::new();
+        inner.fit(&ds).unwrap();
+
+        let cal = CalibratedClassifier::platt(inner).fit(&ds).unwrap();
+        let probe = Frame::from_rows(vec![vec![-2.5], vec![2.5]], vec!["x".into()]).unwrap();
+        assert_eq!(cal.predict(&probe).unwrap(), vec![0.0, 1.0]);
+
+        let proba = cal.predict_proba(&probe).unwrap();
+        assert!((proba.get(0, 0) + proba.get(0, 1) - 1.0).abs() < 1e-9);
+        assert!(proba.get(1, 1) > 0.5); // positive row calibrated toward class 1
     }
 }

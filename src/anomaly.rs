@@ -15,6 +15,27 @@
 use crate::error::{Error, Result};
 use crate::frame::Frame;
 
+/// A common contract for unsupervised outlier scorers: fit on data, score each
+/// row (higher = more anomalous), and flag rows past a threshold. Implemented by
+/// [`Mahalanobis`] and [`KnnScore`], so they are interchangeable behind
+/// `Box<dyn OutlierDetector>`.
+pub trait OutlierDetector {
+    /// Learn the detector from a feature frame.
+    fn fit(&mut self, frame: &Frame) -> Result<()>;
+
+    /// The anomaly score of each row (higher = more anomalous).
+    fn score(&self, frame: &Frame) -> Result<Vec<f64>>;
+
+    /// Flag rows whose score exceeds `threshold`.
+    fn is_outlier(&self, frame: &Frame, threshold: f64) -> Result<Vec<bool>> {
+        Ok(self
+            .score(frame)?
+            .into_iter()
+            .map(|s| s > threshold)
+            .collect())
+    }
+}
+
 /// Mahalanobis-distance outlier scorer: `d(x) = sqrt((x-μ)ᵀ Σ⁻¹ (x-μ))`.
 #[derive(Clone, Debug, Default)]
 pub struct Mahalanobis {
@@ -167,6 +188,24 @@ impl KnnScore {
             .into_iter()
             .map(|s| s > threshold)
             .collect())
+    }
+}
+
+impl OutlierDetector for Mahalanobis {
+    fn fit(&mut self, frame: &Frame) -> Result<()> {
+        Mahalanobis::fit(self, frame)
+    }
+    fn score(&self, frame: &Frame) -> Result<Vec<f64>> {
+        Mahalanobis::score(self, frame)
+    }
+}
+
+impl OutlierDetector for KnnScore {
+    fn fit(&mut self, frame: &Frame) -> Result<()> {
+        KnnScore::fit(self, frame)
+    }
+    fn score(&self, frame: &Frame) -> Result<Vec<f64>> {
+        KnnScore::score(self, frame)
     }
 }
 

@@ -116,15 +116,28 @@ jobs:
       - run: cargo test --locked
 
   msrv:
-    name: msrv (1.80)
+    name: msrv (1.91)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.80
+      # MSRV is driven by the heaviest engine: polars (feature `eda`) requires
+      # Rust 1.91, so that is the floor `full` builds on. The committed lockfile
+      # makes the old-toolchain build reproducible.
+      - uses: dtolnay/rust-toolchain@1.91
       - uses: Swatinem/rust-cache@v2
-      # The committed lockfile is what makes an old-toolchain build reproducible;
-      # `--locked` proves the pinned graph still compiles on the declared MSRV.
       - run: cargo build --locked --features full
+
+  package:
+    name: package (publish dry-run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Prove the crate packages and builds from its packaged form as it would on
+      # crates.io — catches missing files, bad metadata, and path/dev-dep leaks
+      # before a real `cargo publish`.
+      - run: cargo publish --dry-run --locked
 
   python:
     name: python wheel

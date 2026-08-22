@@ -398,22 +398,34 @@ viz::residuals_svg(reg.target(), &y_pred, "residuals.svg", (520, 420))?;
 
 ---
 
-**Calibrate** raw scores into probabilities that mean what they say (feature
-`calibration`) — e.g. a soft vote's class-vote shares:
+**Probabilities & calibration.** `LogisticRegression` is a native, core model
+with a real `predict_proba`. Wrap *any* `ProbaPredictor` (it, or a soft vote) in
+a `CalibratedClassifier` to get probabilities that mean what they say (feature
+`calibration`):
 
 ```rust
-let cal = PlattScaling::fit(&scores, &labels)?;   // or IsotonicRegression::fit(...)
-let probs = cal.transform(&scores);
-let curve = reliability_curve(&probs, &labels, 10);   // bins for a reliability diagram
+let mut clf = LogisticRegression::new();
+clf.fit(&train)?;
+let calibrated = CalibratedClassifier::isotonic(clf).fit(&holdout)?; // or ::platt(..)
+let probs = calibrated.predict_proba(&test)?;                        // column per class
+
+// check calibration directly
+let curve = reliability_curve(&probs.column(1), test.target(), 10);  // predicted vs. observed
 ```
 
 **Detect outliers**, unsupervised (feature `anomaly`):
 
 ```rust
-let mut m = Mahalanobis::new();     // or KnnScore::new(k)
+let mut m = Mahalanobis::new();     // or KnnScore::new(k) — both are OutlierDetectors
 m.fit(&x)?;
 let scores = m.score(&x)?;          // higher = more anomalous
 let flags = m.is_outlier(&x, 3.0)?;
+```
+
+Both, end to end:
+
+```bash
+cargo run --example trust --features "calibration anomaly"
 ```
 
 ## Portability: ONNX in and out
@@ -584,7 +596,7 @@ and Phase 8 owns it directly — *a framework you can bet on*:
   well-separated class labels for the stochastic ones. If an engine bump moves a
   number, the diff makes it impossible to miss.
 - **Feature-matrix CI.** [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
-  runs `fmt`, `clippy -D warnings`, docs, an MSRV build, and the test suite
+  runs `fmt`, `clippy -D warnings`, docs, an MSRV (1.91) build, and the test suite
   across the feature matrix — from `--no-default-features` (bare core) through
   each feature to `full`, plus Windows/macOS on the default install and a maturin
   wheel build for Python.
