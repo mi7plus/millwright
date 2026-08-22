@@ -99,12 +99,16 @@ pub struct NumericProfile {
     pub p75: f64,
     pub max: f64,
     pub skew: f64,
+    /// Excess kurtosis (0.0 for a normal distribution).
+    pub kurtosis: f64,
     pub zeros: usize,
     pub distinct: usize,
     /// Equal-width histogram bins over `[min, max]`.
     pub histogram: Vec<HistBin>,
-    /// IQR-rule outlier count.
+    /// IQR-rule outlier count (values outside `[q25 - 1.5·IQR, q75 + 1.5·IQR]`).
     pub outliers: usize,
+    /// Z-score outlier count (`|z| > 3`).
+    pub outliers_z: usize,
 }
 
 /// One histogram bar.
@@ -126,19 +130,26 @@ pub struct CategoricalProfile {
     pub top: Vec<(String, usize)>,
 }
 
-/// Per-column null counts.
+/// Per-column null counts, plus columns that tend to go missing together.
 #[derive(Clone, Debug)]
 pub struct Missingness {
     pub per_column: Vec<(String, usize)>,
     pub total: usize,
+    /// `(a, b, phi)` for column pairs whose null patterns correlate
+    /// (`|phi| > 0.5`) — a hint that missingness is structural, not random.
+    pub co_missing: Vec<(String, String, f64)>,
 }
 
-/// Pearson correlation over the numeric columns, with high-|r| pairs flagged.
+/// Pearson **and** Spearman correlation over the numeric columns, with high-|r|
+/// (Pearson) pairs flagged.
 #[derive(Clone, Debug)]
 pub struct CorrMatrix {
     pub columns: Vec<String>,
+    /// Pearson correlation matrix.
     pub matrix: Vec<Vec<f64>>,
-    /// `(a, b, r)` for `|r| > 0.95`, `a` before `b` in column order.
+    /// Spearman rank-correlation matrix (same column order).
+    pub spearman: Vec<Vec<f64>>,
+    /// `(a, b, r)` for Pearson `|r| > 0.95`, `a` before `b` in column order.
     pub high_pairs: Vec<(String, String, f64)>,
 }
 
@@ -200,6 +211,7 @@ impl Profile {
 
         let mut columns = Vec::new();
         let mut per_column_missing = Vec::new();
+        let mut null_masks: Vec<(String, Vec<Option<f64>>)> = Vec::new();
         let (mut n_numeric, mut n_categorical, mut n_datetime, mut n_boolean) = (0, 0, 0, 0);
 
         for (name, kind) in &schema {
@@ -212,12 +224,42 @@ impl Profile {
             let missing = table.null_count(name)?;
             per_column_missing.push((name.clone(), missing));
 
+            // A null-indicator mask (1.0 = missing) for columns that have nulls,
+            // so we can later find columns that go missing together.
+            if missing > 0 {
+                let mask: Vec<Option<f64>> = if *kind == ColKind::Numeric {
+                    table
+                        .column_f64(name)?
+                        .iter()
+                        .map(|v| Some(if v.is_none() { 1.0 } else { 0.0 }))
+                        .collect()
+                } else {
+                    table
+                        .column_strings(name)?
+                        .iter()
+                        .map(|v| Some(if v.is_none() { 1.0 } else { 0.0 }))
+                        .collect()
+                };
+                null_masks.push((name.clone(), mask));
+            }
+
             let profile = if *kind == ColKind::Numeric {
                 ColumnProfile::Numeric(numeric_profile(name, table)?)
             } else {
                 ColumnProfile::Categorical(categorical_profile(name, table)?)
             };
             columns.push(profile);
+        }
+
+        // Column pairs whose null patterns correlate (phi = Pearson on the masks).
+        let mut co_missing = Vec::new();
+        for i in 0..null_masks.len() {
+            for j in (i + 1)..null_masks.len() {
+                let phi = pearson(&null_masks[i].1, &null_masks[j].1);
+                if phi.is_finite() && phi.abs() > 0.5 {
+                    co_missing.push((null_masks[i].0.clone(), null_masks[j].0.clone(), phi));
+                }
+            }
         }
 
         let missing_total: usize = per_column_missing.iter().map(|(_, m)| m).sum();
@@ -235,6 +277,7 @@ impl Profile {
         let missingness = Missingness {
             per_column: per_column_missing,
             total: missing_total,
+            co_missing,
         };
 
         let correlations = correlations(table, &schema)?;
@@ -305,9 +348,11 @@ impl Profile {
     }
 
     /// Draft a starting preprocessing [`Pipeline`] from the findings: a median
-    /// imputer when anything is missing, one-hot encoding when there are
-    /// low-cardinality categoricals, and a standard scaler over the numerics.
-    /// The result has no estimator — add yours with
+    /// imputer when anything is missing, a power transform / winsorizer for
+    /// skewed or outlier-heavy columns, one-hot encoding for low-cardinality
+    /// categoricals, a standard scaler over the numerics, and (with the
+    /// `preprocessing` feature) a train-time SMOTE balancer when the target
+    /// classes are imbalanced. The result has no estimator — add yours with
     /// [`Pipeline::estimator`](crate::pipeline::Pipeline::estimator).
     ///
     /// This assumes label-encoded input (the default
@@ -334,6 +379,11 @@ impl Profile {
         }
         if self.overview.n_numeric > 0 {
             pipe = pipe.step("scale", StandardScaler::new());
+        }
+        // Class imbalance -> a train-time SMOTE balancer (needs `preprocessing`).
+        #[cfg(feature = "preprocessing")]
+        if self.alerts.iter().any(|a| a.suggested == "Smote") {
+            pipe = pipe.balance(crate::balance::Smote::new());
         }
         pipe
     }
@@ -372,10 +422,12 @@ fn numeric_profile(name: &str, table: &Table) -> Result<NumericProfile> {
             p75: f64::NAN,
             max: f64::NAN,
             skew: f64::NAN,
+            kurtosis: f64::NAN,
             zeros: 0,
             distinct: 0,
             histogram: Vec::new(),
             outliers: 0,
+            outliers_z: 0,
         });
     }
     present.sort_by(f64::total_cmp);
@@ -383,14 +435,22 @@ fn numeric_profile(name: &str, table: &Table) -> Result<NumericProfile> {
     let mean = present.iter().sum::<f64>() / n;
     let var = present.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
     let std = var.sqrt();
-    let skew = if std > f64::EPSILON {
-        present
+    let (skew, kurtosis) = if std > f64::EPSILON {
+        let m3 = present
             .iter()
             .map(|x| ((x - mean) / std).powi(3))
             .sum::<f64>()
+            / n;
+        // excess kurtosis: 0.0 for a normal distribution
+        let m4 = present
+            .iter()
+            .map(|x| ((x - mean) / std).powi(4))
+            .sum::<f64>()
             / n
+            - 3.0;
+        (m3, m4)
     } else {
-        0.0
+        (0.0, 0.0)
     };
     let (min, max) = (present[0], present[count - 1]);
     let p25 = quantile(&present, 0.25);
@@ -399,6 +459,14 @@ fn numeric_profile(name: &str, table: &Table) -> Result<NumericProfile> {
     let iqr = p75 - p25;
     let (lo, hi) = (p25 - 1.5 * iqr, p75 + 1.5 * iqr);
     let outliers = present.iter().filter(|&&x| x < lo || x > hi).count();
+    let outliers_z = if std > f64::EPSILON {
+        present
+            .iter()
+            .filter(|&&x| ((x - mean) / std).abs() > 3.0)
+            .count()
+    } else {
+        0
+    };
     let zeros = present.iter().filter(|&&x| x == 0.0).count();
     let distinct = {
         let mut d = present.clone();
@@ -419,10 +487,12 @@ fn numeric_profile(name: &str, table: &Table) -> Result<NumericProfile> {
         p75,
         max,
         skew,
+        kurtosis,
         zeros,
         distinct,
         histogram,
         outliers,
+        outliers_z,
     })
 }
 
@@ -509,13 +579,18 @@ fn correlations(table: &Table, schema: &[(String, ColKind)]) -> Result<CorrMatri
 
     let k = columns.len();
     let mut matrix = vec![vec![f64::NAN; k]; k];
+    let mut spearman_mat = vec![vec![f64::NAN; k]; k];
     let mut high_pairs = Vec::new();
     for i in 0..k {
         matrix[i][i] = 1.0;
+        spearman_mat[i][i] = 1.0;
         for j in (i + 1)..k {
             let r = pearson(&cols[i], &cols[j]);
             matrix[i][j] = r;
             matrix[j][i] = r;
+            let rs = spearman(&cols[i], &cols[j]);
+            spearman_mat[i][j] = rs;
+            spearman_mat[j][i] = rs;
             if r.is_finite() && r.abs() > 0.95 {
                 high_pairs.push((columns[i].clone(), columns[j].clone(), r));
             }
@@ -524,8 +599,52 @@ fn correlations(table: &Table, schema: &[(String, ColKind)]) -> Result<CorrMatri
     Ok(CorrMatrix {
         columns,
         matrix,
+        spearman: spearman_mat,
         high_pairs,
     })
+}
+
+/// Spearman rank correlation: Pearson over the ranks of the paired, present,
+/// finite values (ties share their average rank).
+fn spearman(xs: &[Option<f64>], ys: &[Option<f64>]) -> f64 {
+    let pairs: Vec<(f64, f64)> = xs
+        .iter()
+        .zip(ys)
+        .filter_map(|(a, b)| match (a, b) {
+            (Some(a), Some(b)) if a.is_finite() && b.is_finite() => Some((*a, *b)),
+            _ => None,
+        })
+        .collect();
+    if pairs.len() < 2 {
+        return f64::NAN;
+    }
+    let rx = ranks(&pairs.iter().map(|(a, _)| *a).collect::<Vec<_>>());
+    let ry = ranks(&pairs.iter().map(|(_, b)| *b).collect::<Vec<_>>());
+    let rx: Vec<Option<f64>> = rx.into_iter().map(Some).collect();
+    let ry: Vec<Option<f64>> = ry.into_iter().map(Some).collect();
+    pearson(&rx, &ry)
+}
+
+/// Fractional ranks (1-based), averaging ties.
+fn ranks(values: &[f64]) -> Vec<f64> {
+    let n = values.len();
+    let mut idx: Vec<usize> = (0..n).collect();
+    idx.sort_by(|&a, &b| values[a].total_cmp(&values[b]));
+    let mut out = vec![0.0; n];
+    let mut i = 0;
+    while i < n {
+        let mut j = i + 1;
+        while j < n && values[idx[j]] == values[idx[i]] {
+            j += 1;
+        }
+        // ranks i..j (0-based) share the average 1-based rank
+        let avg = ((i + 1 + j) as f64) / 2.0;
+        for &k in &idx[i..j] {
+            out[k] = avg;
+        }
+        i = j;
+    }
+    out
 }
 
 /// Pearson correlation over the rows where both values are present and finite.
@@ -680,7 +799,7 @@ fn alerts(
                     out.push(Alert {
                         column: Some(cp.name.clone()),
                         message: format!("high cardinality ({} levels)", cp.distinct),
-                        suggested: "drop or hash",
+                        suggested: "TargetEncoder",
                     });
                 } else if cp.distinct >= 2 {
                     out.push(Alert {
@@ -771,10 +890,12 @@ impl Profile {
                     body.push_str(&format!(
                         "<div class=col><h3>{} <span class=tag>numeric</span></h3>\
                          <div class=stats>mean {:.3} · std {:.3} · min {:.3} · median {:.3} · max {:.3} · \
-                         missing {} · distinct {} · outliers {}</div>{}</div>",
+                         skew {:.2} · kurtosis {:.2} · missing {} · distinct {} · \
+                         outliers {} IQR / {} z</div>{}</div>",
                         esc(&np.name),
                         np.mean, np.std, np.min, np.median, np.max,
-                        np.missing, np.distinct, np.outliers,
+                        np.skew, np.kurtosis,
+                        np.missing, np.distinct, np.outliers, np.outliers_z,
                         histogram_svg(&np.histogram),
                     ));
                 }
@@ -805,14 +926,38 @@ impl Profile {
 
         if !self.correlations.high_pairs.is_empty() {
             body.push_str(
-                "<h2>Highly correlated pairs</h2><table><tr><th>Pair</th><th>|r|</th></tr>",
+                "<h2>Highly correlated pairs</h2><table><tr><th>Pair</th><th>Pearson r</th><th>Spearman ρ</th></tr>",
             );
+            let cols = &self.correlations.columns;
             for (a, b, r) in &self.correlations.high_pairs {
+                let rho = match (
+                    cols.iter().position(|c| c == a),
+                    cols.iter().position(|c| c == b),
+                ) {
+                    (Some(i), Some(j)) => self.correlations.spearman[i][j],
+                    _ => f64::NAN,
+                };
+                body.push_str(&format!(
+                    "<tr><td>{} ~ {}</td><td>{:.3}</td><td>{:.3}</td></tr>",
+                    esc(a),
+                    esc(b),
+                    r,
+                    rho,
+                ));
+            }
+            body.push_str("</table>");
+        }
+
+        if !self.missingness.co_missing.is_empty() {
+            body.push_str(
+                "<h2>Columns missing together</h2><table><tr><th>Pair</th><th>phi</th></tr>",
+            );
+            for (a, b, phi) in &self.missingness.co_missing {
                 body.push_str(&format!(
                     "<tr><td>{} ~ {}</td><td>{:.3}</td></tr>",
                     esc(a),
                     esc(b),
-                    r.abs()
+                    phi,
                 ));
             }
             body.push_str("</table>");
@@ -975,5 +1120,77 @@ mod tests {
         assert!(html.starts_with("<!doctype html>"));
         assert!(html.contains("Data profile"));
         assert!(html.contains("Alerts"));
+    }
+
+    #[test]
+    fn computes_kurtosis_and_z_outliers() {
+        let mut xs = vec![1.0_f64; 19];
+        xs.push(100.0); // one extreme value
+        let p = Profile::of(&Table::from_polars(df!("x" => xs).unwrap())).unwrap();
+        let x = numeric(&p, "x");
+        assert!(
+            x.kurtosis.is_finite() && x.kurtosis > 3.0,
+            "kurtosis {}",
+            x.kurtosis
+        );
+        assert_eq!(x.outliers_z, 1, "the extreme value is a z-score outlier");
+    }
+
+    #[test]
+    fn computes_spearman_correlation() {
+        // y = x^2: perfectly monotonic (Spearman = 1) but nonlinear (Pearson < 1).
+        let x: Vec<f64> = (1..=8).map(|i| i as f64).collect();
+        let y: Vec<f64> = x.iter().map(|v| v * v).collect();
+        let p = Profile::of(&Table::from_polars(df!("x" => x, "y" => y).unwrap())).unwrap();
+        let c = p.correlations();
+        let (i, j) = (
+            c.columns.iter().position(|n| n == "x").unwrap(),
+            c.columns.iter().position(|n| n == "y").unwrap(),
+        );
+        assert!(
+            (c.spearman[i][j] - 1.0).abs() < 1e-9,
+            "spearman {}",
+            c.spearman[i][j]
+        );
+        assert!(c.matrix[i][j] < 0.99, "pearson {}", c.matrix[i][j]);
+    }
+
+    #[test]
+    fn flags_co_missing_columns() {
+        // `a` and `b` are null on exactly the same rows.
+        let a = [Some(1.0_f64), None, Some(3.0), None, Some(5.0)];
+        let b = [Some(1.0_f64), None, Some(3.0), None, Some(5.0)];
+        let c = [Some(1.0_f64), Some(2.0), Some(3.0), Some(4.0), Some(5.0)];
+        let p = Profile::of(&Table::from_polars(
+            df!("a" => a, "b" => b, "c" => c).unwrap(),
+        ))
+        .unwrap();
+        let cm = &p.missingness().co_missing;
+        assert!(
+            cm.iter()
+                .any(|(x, y, phi)| (x == "a" && y == "b") && *phi > 0.9),
+            "co_missing = {cm:?}"
+        );
+    }
+
+    #[test]
+    fn high_cardinality_suggests_target_encoder() {
+        let ids: Vec<String> = (0..30).map(|i| format!("id{i}")).collect();
+        let p = Profile::of(&Table::from_polars(df!("uid" => ids).unwrap())).unwrap();
+        assert!(p
+            .alerts()
+            .iter()
+            .any(|a| a.suggested == "TargetEncoder" && a.column.as_deref() == Some("uid")));
+    }
+
+    #[test]
+    fn imbalance_raises_a_smote_alert() {
+        let mut y = vec![0_i64; 9];
+        y.extend([1, 1, 1]); // 9:3 = 3:1 imbalance
+        let x: Vec<f64> = (0..12).map(|i| i as f64).collect();
+        let p = Profile::of_with_target(&Table::from_polars(df!("x" => x, "y" => y).unwrap()), "y")
+            .unwrap();
+        assert!(p.alerts().iter().any(|a| a.suggested == "Smote"));
+        let _ = p.suggest_pipeline(); // builds without panicking
     }
 }
