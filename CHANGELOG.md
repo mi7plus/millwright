@@ -27,6 +27,14 @@ All notable changes to Millwright are recorded here. The format follows
   bundles the `eda` (polars) engine, so it is larger than the pure-model build.
 - **`Table::from_frame`** (Rust): build a numeric `Table` from a `Frame`, so the
   numeric world can round-trip back into the typed one (e.g. to profile it).
+- **Richer EDA in `Profile`** — excess `kurtosis` and z-score outlier counts per
+  numeric column; a **Spearman** rank-correlation matrix beside the Pearson one;
+  a **co-missing** map (columns whose null patterns correlate); high-cardinality
+  categoricals now suggest `TargetEncoder`; and `suggest_pipeline` adds a
+  train-time **SMOTE** balancer on class imbalance (with `preprocessing`).
+- **AutoML is seeded by EDA.** With the `eda` engine on, the search fixes its
+  preprocessing to `Profile::suggest_pipeline()` and varies only the model,
+  pruning the space (it falls back to a scaler sweep without `eda`).
 
 ### Fixed
 - **Cross-validated F1 no longer returns `NaN`.** A fold whose predictions

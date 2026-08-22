@@ -7,6 +7,12 @@
 //! model plus a leaderboard. No new crate; it reuses
 //! [`selection`](crate::selection) and [`ensemble`](crate::ensemble).
 //!
+//! When the `eda` engine is enabled, the search is *seeded* from
+//! [`Profile::suggest_pipeline`](crate::profile::Profile::suggest_pipeline): the
+//! preprocessing is fixed to EDA's suggestion and only the model varies on top,
+//! pruning the space before a single model is fit. Without `eda` it falls back
+//! to searching the scaler as well.
+//!
 //! ```no_run
 //! use millwright::prelude::*;
 //! # fn main() -> millwright::Result<()> {
@@ -122,8 +128,8 @@ impl AutoML {
     /// Run the search and return the best deployable model with a leaderboard.
     pub fn fit(self, dataset: &Dataset) -> Result<AutoMLResult> {
         let mut candidates = match self.task {
-            Task::Classifier => classifier_candidates(),
-            Task::Regressor => regressor_candidates(),
+            Task::Classifier => classifier_candidates(dataset),
+            Task::Regressor => regressor_candidates(dataset),
         };
         Rng::new(self.seed).shuffle(&mut candidates);
 
@@ -291,12 +297,50 @@ fn cmp(a: f64, b: f64, greater_is_better: bool) -> std::cmp::Ordering {
     }
 }
 
+/// The preprocessing pipeline EDA suggests for `dataset`, when the `eda` engine
+/// is available — the search then varies only the model on top of it, rather
+/// than blindly trying every scaler. Returns `None` (fall back to the scaler
+/// sweep) when `eda` is off or profiling fails.
+#[cfg(feature = "eda")]
+fn seeded_base(dataset: &Dataset) -> Option<Pipeline> {
+    let table = crate::table::Table::from_frame(dataset.features()).ok()?;
+    let profile = crate::profile::Profile::of(&table).ok()?;
+    Some(profile.suggest_pipeline())
+}
+
 /// Preprocessing × RandomForest-hyperparameter candidates.
-fn classifier_candidates() -> Vec<(String, Pipeline)> {
+#[cfg_attr(not(feature = "eda"), allow(unused_variables))]
+fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
     use crate::transform::{MinMaxScaler, StandardScaler};
     let depths = [Some(2u16), Some(4), Some(8), None];
     let trees = [50u16, 100];
     let mut out = Vec::new();
+
+    // Seed the preprocessing from EDA's suggestion; vary only the model on top.
+    #[cfg(feature = "eda")]
+    if let Some(base) = seeded_base(dataset) {
+        let prep = base.step_names().join("+");
+        let prep = if prep.is_empty() { "raw".into() } else { prep };
+        for &depth in &depths {
+            for &n in &trees {
+                let mut rf = RandomForest::new().n_trees(n);
+                if let Some(d) = depth {
+                    rf = rf.max_depth(d);
+                }
+                let pipe = base.clone().estimator("rf", rf);
+                let depth_s = depth
+                    .map(|d| d.to_string())
+                    .unwrap_or_else(|| "none".into());
+                out.push((
+                    format!("profile[{prep}] | rf(trees={n}, depth={depth_s})"),
+                    pipe,
+                ));
+            }
+        }
+        return out;
+    }
+
+    // Fallback: search the scaler as well as the model.
     for scaler in ["none", "standard", "minmax"] {
         for &depth in &depths {
             for &n in &trees {
@@ -322,9 +366,22 @@ fn classifier_candidates() -> Vec<(String, Pipeline)> {
 }
 
 /// Preprocessing × LinearRegression candidates.
-fn regressor_candidates() -> Vec<(String, Pipeline)> {
+#[cfg_attr(not(feature = "eda"), allow(unused_variables))]
+fn regressor_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
     use crate::transform::{MinMaxScaler, StandardScaler};
     let mut out = Vec::new();
+
+    #[cfg(feature = "eda")]
+    if let Some(base) = seeded_base(dataset) {
+        let prep = base.step_names().join("+");
+        let prep = if prep.is_empty() { "raw".into() } else { prep };
+        out.push((
+            format!("profile[{prep}] | linear"),
+            base.estimator("lr", LinearRegression::new()),
+        ));
+        return out;
+    }
+
     for scaler in ["none", "standard", "minmax"] {
         let mut pipe = Pipeline::new();
         pipe = match scaler {
@@ -387,6 +444,24 @@ mod tests {
         assert!(
             preds[0] < preds[1],
             "clusters should separate, got {preds:?} (winner: {})",
+            result.best_label()
+        );
+    }
+
+    #[cfg(feature = "eda")]
+    #[test]
+    fn classifier_search_is_seeded_from_profile() {
+        let ds = two_class();
+        let result = AutoML::classifier()
+            .budget(Budget::trials(6))
+            .cv(StratifiedKFold::new(4))
+            .seed(1)
+            .fit(&ds)
+            .unwrap();
+        // Every candidate is built on the profile's suggested preprocessing.
+        assert!(
+            result.best_label().starts_with("profile["),
+            "label: {}",
             result.best_label()
         );
     }
