@@ -596,7 +596,7 @@ and Phase 8 owns it directly — *a framework you can bet on*:
   well-separated class labels for the stochastic ones. If an engine bump moves a
   number, the diff makes it impossible to miss.
 - **Feature-matrix CI.** [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
-  runs `fmt`, `clippy -D warnings`, docs, an MSRV (1.91) build, and the test suite
+  runs `fmt`, `clippy -D warnings`, docs, an MSRV (1.95) build, and the test suite
   across the feature matrix — from `--no-default-features` (bare core) through
   each feature to `full`, plus Windows/macOS on the default install and a maturin
   wheel build for Python.

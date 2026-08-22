@@ -2,7 +2,7 @@
 name = "millwright"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.91"
+rust-version = "1.95"
 description = "A unified ML framework for Rust — proven Rust crates, assembled into one machine."
 license = "MIT"
 homepage = "https://millwright-rs.dev/"

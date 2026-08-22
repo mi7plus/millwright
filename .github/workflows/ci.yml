@@ -116,14 +116,14 @@ jobs:
       - run: cargo test --locked
 
   msrv:
-    name: msrv (1.91)
+    name: msrv (1.95)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # MSRV is driven by the heaviest engine: polars (feature `eda`) requires
-      # Rust 1.91, so that is the floor `full` builds on. The committed lockfile
-      # makes the old-toolchain build reproducible.
-      - uses: dtolnay/rust-toolchain@1.91
+      # MSRV is dictated by the deepest transitive engine deps: `sysinfo` (via
+      # tract, feature `onnx`/`full`) requires Rust 1.95, and tract itself 1.91.
+      # The committed lockfile makes the build reproducible on that floor.
+      - uses: dtolnay/rust-toolchain@1.95
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --locked --features full
 
@@ -133,10 +133,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      # No rust-cache here: `cargo publish` builds a copy under target/package,
+      # which the cache action's post-step chokes on.
       # Prove the crate packages and builds from its packaged form as it would on
-      # crates.io — catches missing files, bad metadata, and path/dev-dep leaks
-      # before a real `cargo publish`.
+      # crates.io — catches missing files, bad metadata, and path/dev-dep leaks.
       - run: cargo publish --dry-run --locked
 
   python:

@@ -31,8 +31,8 @@ All notable changes to Millwright are recorded here. The format follows
 
 - Exact-version pins on every engine crate; `Cargo.lock` committed; a
   feature-matrix CI (fmt, clippy `-D warnings`, docs, MSRV, matrix, OS, wheel).
-- MSRV is **1.91** (driven by polars, feature `eda`); the default install needs
-  1.85.
+- MSRV is **1.95** (driven by transitive engine deps — `sysinfo` via tract, and
+  polars); the default install needs 1.85.
 - De-staled the crate and module docs (no more "Phase 0 · the spine").
 
 ### Fixed

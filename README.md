@@ -37,7 +37,7 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
 - **Balancing** (`src/balance.rs`, via [`imbalance-rs`]): `Smote`,
   `RandomOverSampler` as train-time `Balancer`s — `Pipeline::balance(...)`,
   applied only during `fit`.
-- **Model selection** (`src/selection.rs`, via [`model-selection-rs`]):
+- **Model selection** (`src/selection/`, via [`model-selection-rs`]):
   `KFold` / `StratifiedKFold`, a `Metric` enum (accuracy, F1, MAE, MSE, RMSE, R²),
   and `GridSearch` / `RandomSearch` over a whole pipeline, tuned by path. `grid!`
   macro included.
@@ -51,7 +51,7 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
   `linfa-backend`): `KMeans`, `GaussianMixture`, `Dbscan` (as a new `Clusterer`
   contract) and `Pca` (as a `Transformer`) — each converting `Frame → ndarray`
   at the edge, proving the boundary conversion against a whole other engine.
-- **Bayesian search** (`src/selection.rs`, via [`hyperopt-rs`], feature `hpo`):
+- **Bayesian search** (`src/selection/`, via [`hyperopt-rs`], feature `hpo`):
   `BayesSearch` runs TPE search over a `SearchSpace` and returns the *same*
   `SearchResult` as grid/random search — one search API, three strategies.
 
@@ -191,7 +191,7 @@ single-author engine crates.
   transforms, metric formulas), well-separated class labels for the stochastic
   ones. An engine bump that moves a number shows up as a diff.
 - **Feature-matrix CI** (`.github/workflows/ci.yml`): `fmt`, `clippy -D warnings`,
-  docs, an MSRV (1.91) build, and the test suite across the feature matrix — from
+  docs, an MSRV (1.95) build, and the test suite across the feature matrix — from
   `--no-default-features` through each feature to `full`, plus Windows/macOS on
   the default install and a maturin wheel for Python.
 - **The tutorial** ([`GUIDE.md`](GUIDE.md) + [`guide.html`](guide.html)): the

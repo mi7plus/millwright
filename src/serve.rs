@@ -165,7 +165,9 @@ mod tests {
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
-    fn linear_onnx() -> std::path::PathBuf {
+    // A per-test filename: tests run in parallel, so a shared path would race
+    // (one test deleting the file another is still loading).
+    fn linear_onnx(tag: &str) -> std::path::PathBuf {
         // y = 2*x1 + 3*x2 + 1
         let rows: Vec<Vec<f64>> = (0..15).map(|i| vec![i as f64, (i % 4) as f64]).collect();
         let y: Vec<f64> = rows.iter().map(|r| 2.0 * r[0] + 3.0 * r[1] + 1.0).collect();
@@ -176,14 +178,14 @@ mod tests {
         .unwrap();
         let mut lr = LinearRegression::new();
         lr.fit(&ds).unwrap();
-        let path = std::env::temp_dir().join(format!("mw_serve_{}.onnx", std::process::id()));
+        let path = std::env::temp_dir().join(format!("mw_serve_{}_{tag}.onnx", std::process::id()));
         lr.export_onnx(&path).unwrap();
         path
     }
 
     #[tokio::test]
     async fn predict_endpoint_returns_predictions() {
-        let path = linear_onnx();
+        let path = linear_onnx("predict");
         let app = Server::from_onnx(&path).unwrap().router();
 
         let body =
@@ -212,7 +214,7 @@ mod tests {
 
     #[tokio::test]
     async fn ragged_rows_are_rejected() {
-        let path = linear_onnx();
+        let path = linear_onnx("ragged");
         let app = Server::from_onnx(&path).unwrap().router();
         let body = serde_json::to_vec(&serde_json::json!({ "rows": [[1.0, 2.0], [3.0]] })).unwrap();
         let response = app
