@@ -16,14 +16,21 @@ the same source.
 
 ## Rust crate → crates.io
 
-Automated by the **`release-crate.yml`** workflow, which publishes on a `v*`
-tag. One-time setup: add your crates.io API token as a repository secret named
-**`CARGO_REGISTRY_TOKEN`**. Then a tag (below) publishes it; a manual run
-(Actions → release-crate → Run workflow) does a `--dry-run` instead. The
-workflow also fails fast if the tag doesn't match `Cargo.toml`'s version.
+Automated by the **`release-crate.yml`** workflow, which publishes on a `v*` tag
+via **Trusted Publishing (OIDC)** — no token is stored anywhere. One-time setup,
+on crates.io (crate → Settings → Trusted Publishing → add GitHub):
 
-To publish by hand instead: `cargo login <token>` once, then
-`cargo publish --locked`.
+| field               | value              |
+| ------------------- | ------------------ |
+| Repository owner    | `mi7plus`          |
+| Repository name     | `millwright`       |
+| Workflow filename   | `release-crate.yml`|
+| Environment         | *(leave blank)*    |
+
+Then a tag (below) publishes; a manual run (Actions → release-crate → Run
+workflow) does a `--dry-run`. The workflow also fails fast if the tag doesn't
+match `Cargo.toml`'s version. To publish by hand instead: `cargo login <token>`
+then `cargo publish --locked`.
 
 docs.rs builds the documentation automatically with the `full` feature set (see
 `[package.metadata.docs.rs]` in `Cargo.toml`); the `python` feature is excluded
@@ -33,10 +40,17 @@ there because it needs a Python interpreter.
 
 The recommended path is the **`release-python.yml`** workflow, which builds
 Linux (x86_64 + aarch64), macOS (x86_64 + aarch64), and Windows wheels plus an
-sdist, and publishes them together. One-time setup:
+sdist, and publishes them together via **Trusted Publishing (OIDC)** — no stored
+token. One-time setup, on PyPI (before the first publish, add a *pending*
+publisher: PyPI → account → Publishing):
 
-1. Add your PyPI API token as a repository secret named **`PYPI_API_TOKEN`**
-   (Settings → Secrets and variables → Actions → New repository secret).
+| field               | value               |
+| ------------------- | ------------------- |
+| PyPI Project Name   | `millwright`        |
+| Owner               | `mi7plus`           |
+| Repository name     | `millwright`        |
+| Workflow name       | `release-python.yml`|
+| Environment         | *(leave blank)*     |
 
 Then every release is just a tag:
 

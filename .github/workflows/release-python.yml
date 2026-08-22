@@ -99,6 +99,8 @@ jobs:
     needs: [linux, windows, macos, sdist]
     # Only publish on a version tag; a manual run just builds the wheels above.
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      id-token: write # PyPI Trusted Publishing (OIDC) — no stored token
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -106,9 +108,7 @@ jobs:
           merge-multiple: true
           path: dist
       - name: publish
-        uses: PyO3/maturin-action@v1
-        env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          command: upload
-          args: --non-interactive --skip-existing dist/*
+          packages-dir: dist
+          skip-existing: true
