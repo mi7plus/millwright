@@ -3,7 +3,19 @@
 Millwright ships as one Rust crate (crates.io) and one Python wheel (PyPI), from
 the same source.
 
-## Preflight
+## The easy way
+
+With `main` green and `CHANGELOG.md`'s `[Unreleased]` section filled in, run:
+
+```bash
+bash scripts/release.sh 0.1.2
+```
+
+It bumps both manifests, rolls the changelog, syncs `Cargo.lock`, verifies the
+package, commits, tags `v0.1.2`, and (after a prompt) pushes — which triggers the
+publish workflows below. The rest of this file is the manual equivalent.
+
+## Preflight (manual)
 
 1. `main` is green in CI and `CHANGELOG.md`'s `[Unreleased]` section is current.
 2. Bump the version in **both** `Cargo.toml` and `pyproject.toml`, move the
