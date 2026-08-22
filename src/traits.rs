@@ -91,7 +91,7 @@ impl ParamValue {
 ///
 /// The [`TransformerClone`] supertrait lets a boxed transformer be cloned, so a
 /// search can re-fit a fresh copy of a pipeline on every CV fold.
-pub trait Transformer: TransformerClone {
+pub trait Transformer: TransformerClone + Send + Sync {
     /// A short, stable name for diagnostics.
     fn name(&self) -> &'static str;
 
@@ -147,7 +147,7 @@ impl Clone for Box<dyn Transformer> {
 }
 
 /// Fits a model on a labelled [`Dataset`].
-pub trait Estimator {
+pub trait Estimator: Send + Sync {
     /// A short, stable name for diagnostics.
     fn name(&self) -> &'static str;
 
@@ -175,7 +175,7 @@ pub trait Estimator {
 }
 
 /// Produces point predictions for a frame.
-pub trait Predictor {
+pub trait Predictor: Send + Sync {
     /// Predict one value per row.
     fn predict(&self, frame: &Frame) -> Result<Vec<f64>>;
 }
@@ -263,7 +263,7 @@ impl Clone for Box<dyn Model> {
 /// `(Frame, target)`. Unlike a [`Transformer`], a balancer runs **only during
 /// `fit`** — never at predict time — because it changes the row set (e.g. SMOTE
 /// synthesises minority-class rows).
-pub trait Balancer: BalancerClone {
+pub trait Balancer: BalancerClone + Send + Sync {
     /// A short, stable name for diagnostics.
     fn name(&self) -> &'static str;
 

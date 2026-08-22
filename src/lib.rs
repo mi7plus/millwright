@@ -169,7 +169,7 @@ pub mod prelude {
     pub use crate::serve::Server;
 
     #[cfg(feature = "ensemble")]
-    pub use crate::ensemble::{Bagging, Voting, VotingKind};
+    pub use crate::ensemble::{Bagging, Boosting, Voting, VotingKind};
 
     #[cfg(feature = "automl")]
     pub use crate::automl::{AutoML, AutoMLResult, Budget};

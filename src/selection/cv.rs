@@ -19,7 +19,7 @@ fn ms_err(e: impl std::fmt::Display) -> Error {
 /// A cross-validation strategy that yields `(train, test)` row-index splits for
 /// a dataset. Wraps the `model-selection-rs` splitters, supplying labels
 /// automatically where a splitter needs them.
-pub trait CrossValidator: CrossValidatorClone {
+pub trait CrossValidator: CrossValidatorClone + Send + Sync {
     /// Produce the `(train_indices, test_indices)` splits for `dataset`.
     fn splits(&self, dataset: &Dataset) -> Result<Vec<(Vec<usize>, Vec<usize>)>>;
     /// The number of splits.
@@ -124,13 +124,18 @@ pub fn cross_val_score(
             "cross-validation produced no splits".into(),
         ));
     }
-    let mut total = 0.0;
-    for (train, test) in &splits {
-        let mut m = model.clone_box();
-        m.fit(&dataset.select(train))?;
-        let preds = m.predict(&dataset.features().select_rows(test))?;
-        let truth: Vec<f64> = test.iter().map(|&i| dataset.target()[i]).collect();
-        total += metric.score(&truth, &preds);
-    }
-    Ok(total / splits.len() as f64)
+    // Folds are independent — a fresh clone of the model is fit and scored on
+    // each, in parallel over rayon.
+    use rayon::prelude::*;
+    let scores: Vec<f64> = splits
+        .par_iter()
+        .map(|(train, test)| -> Result<f64> {
+            let mut m = model.clone_box();
+            m.fit(&dataset.select(train))?;
+            let preds = m.predict(&dataset.features().select_rows(test))?;
+            let truth: Vec<f64> = test.iter().map(|&i| dataset.target()[i]).collect();
+            Ok(metric.score(&truth, &preds))
+        })
+        .collect::<Result<Vec<f64>>>()?;
+    Ok(scores.iter().sum::<f64>() / scores.len() as f64)
 }

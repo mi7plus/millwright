@@ -6,7 +6,10 @@
 //! and any future backend can sit in one ensemble.
 //!
 //! - [`Voting`] — hard (majority) or soft (mean class-fraction) vote.
-//! - [`Bagging`] — bootstrap-resample, fit a base estimator per sample, aggregate.
+//! - [`Bagging`] — bootstrap-resample, fit a base estimator per sample (in
+//!   parallel over rayon), aggregate.
+//! - [`Boosting`] — SAMME adaptive boosting: fit weak learners in sequence, each
+//!   reweighted toward the last ensemble's mistakes, then `alpha`-weighted vote.
 //! - [`Stacking`] — a meta-learner over the base models' leak-free out-of-fold
 //!   predictions (requires the `model-selection` feature for the CV engine).
 //!
@@ -250,15 +253,24 @@ impl Estimator for Bagging {
         }
         self.classes = is_classification(dataset.target()).then(|| classes_of(dataset.target()));
         let n = dataset.features().nrows();
+
+        // Draw the bootstrap index sets sequentially (deterministic RNG), then
+        // fit the base estimator on each in parallel over rayon. `par_iter`
+        // preserves order, so the fitted members are seed-reproducible.
         let mut rng = Rng::new(self.seed);
-        let mut members = Vec::with_capacity(self.n_estimators);
-        for _ in 0..self.n_estimators {
-            let idx: Vec<usize> = (0..n).map(|_| rng.below(n)).collect();
-            let mut m = self.base.clone();
-            m.fit(&dataset.select(&idx))?;
-            members.push(m);
-        }
-        self.members = members;
+        let bootstraps: Vec<Vec<usize>> = (0..self.n_estimators)
+            .map(|_| (0..n).map(|_| rng.below(n)).collect())
+            .collect();
+
+        use rayon::prelude::*;
+        self.members = bootstraps
+            .par_iter()
+            .map(|idx| {
+                let mut m = self.base.clone();
+                m.fit(&dataset.select(idx))?;
+                Ok(m)
+            })
+            .collect::<Result<Vec<_>>>()?;
         self.fitted = true;
         Ok(())
     }
@@ -281,6 +293,194 @@ impl Predictor for Bagging {
             .map(|m| m.predict(frame))
             .collect::<Result<_>>()?;
         Ok(aggregate(&preds, frame.nrows(), &self.classes))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Boosting (SAMME AdaBoost for classification)
+// ---------------------------------------------------------------------------
+
+/// A weighted bootstrap: draw `weights.len()` indices with probability
+/// proportional to `weights`. Lets a base estimator that takes no sample
+/// weights still be trained on a reweighted distribution.
+fn weighted_bootstrap(weights: &[f64], rng: &mut Rng) -> Vec<usize> {
+    let n = weights.len();
+    let mut cum = Vec::with_capacity(n);
+    let mut acc = 0.0;
+    for &w in weights {
+        acc += w;
+        cum.push(acc);
+    }
+    let total = acc.max(f64::MIN_POSITIVE);
+    (0..n)
+        .map(|_| {
+            let u = (rng.next_u64() as f64 / u64::MAX as f64) * total;
+            match cum.binary_search_by(|c| c.partial_cmp(&u).unwrap_or(std::cmp::Ordering::Equal)) {
+                Ok(i) | Err(i) => i.min(n - 1),
+            }
+        })
+        .collect()
+}
+
+/// Adaptive boosting (SAMME) for classification: fit a sequence of weak
+/// learners, each on a distribution reweighted toward the previous ensemble's
+/// mistakes, then take an `alpha`-weighted vote. Works for any classifier;
+/// shallow trees (`RandomForest::new().max_depth(1)`) make classic stumps.
+#[derive(Clone)]
+pub struct Boosting {
+    base: Box<dyn Model>,
+    n_estimators: usize,
+    learning_rate: f64,
+    seed: u64,
+    members: Vec<(Box<dyn Model>, f64)>,
+    classes: Vec<i64>,
+    fitted: bool,
+}
+
+impl Boosting {
+    /// Boost the given base estimator (50 rounds by default).
+    pub fn of(base: impl Model + 'static) -> Self {
+        Boosting {
+            base: Box::new(base),
+            n_estimators: 50,
+            learning_rate: 1.0,
+            seed: 0,
+            members: Vec::new(),
+            classes: Vec::new(),
+            fitted: false,
+        }
+    }
+
+    /// Number of boosting rounds.
+    pub fn n_estimators(mut self, n: usize) -> Self {
+        self.n_estimators = n;
+        self
+    }
+
+    /// Shrink each round's contribution (`< 1.0` regularizes).
+    pub fn learning_rate(mut self, lr: f64) -> Self {
+        self.learning_rate = lr;
+        self
+    }
+
+    /// Seed the weighted-resampling RNG.
+    pub fn seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+}
+
+impl Estimator for Boosting {
+    fn name(&self) -> &'static str {
+        "Boosting"
+    }
+
+    fn fit(&mut self, dataset: &Dataset) -> Result<()> {
+        if self.n_estimators == 0 {
+            return Err(Error::Pipeline("Boosting needs n_estimators >= 1".into()));
+        }
+        let y: Vec<i64> = dataset.target().iter().map(|v| v.round() as i64).collect();
+        let n = y.len();
+        self.classes = classes_of(dataset.target());
+        let k = self.classes.len();
+        if k < 2 {
+            return Err(Error::Pipeline("Boosting needs >= 2 classes".into()));
+        }
+
+        let x = dataset.features();
+        let mut w = vec![1.0 / n as f64; n];
+        let mut rng = Rng::new(self.seed);
+        let mut members: Vec<(Box<dyn Model>, f64)> = Vec::new();
+
+        for _ in 0..self.n_estimators {
+            let idx = weighted_bootstrap(&w, &mut rng);
+            let mut m = self.base.clone();
+            m.fit(&dataset.select(&idx))?;
+            let preds = m.predict(x)?;
+            let miss: Vec<bool> = preds
+                .iter()
+                .zip(&y)
+                .map(|(p, t)| p.round() as i64 != *t)
+                .collect();
+
+            let wsum: f64 = w.iter().sum();
+            let err = (w
+                .iter()
+                .zip(&miss)
+                .filter(|(_, &m)| m)
+                .map(|(wi, _)| *wi)
+                .sum::<f64>()
+                / wsum)
+                .clamp(1e-10, 1.0 - 1e-10);
+
+            // A perfect round: keep it with a dominant weight and stop.
+            if err <= 1e-10 {
+                members.push((m, 1.0));
+                break;
+            }
+            // SAMME: worse than random for K classes — stop boosting.
+            if err >= 1.0 - 1.0 / k as f64 {
+                break;
+            }
+
+            let alpha = self.learning_rate * (((1.0 - err) / err).ln() + (k as f64 - 1.0).ln());
+            for i in 0..n {
+                if miss[i] {
+                    w[i] *= alpha.exp();
+                }
+            }
+            let sum: f64 = w.iter().sum();
+            for wi in &mut w {
+                *wi /= sum;
+            }
+            members.push((m, alpha));
+        }
+
+        if members.is_empty() {
+            return Err(Error::Pipeline(
+                "Boosting produced no usable weak learners (base worse than chance)".into(),
+            ));
+        }
+        self.members = members;
+        self.fitted = true;
+        Ok(())
+    }
+
+    fn set_param(&mut self, path: &str, value: ParamValue) -> Result<()> {
+        let param = path.strip_prefix("base__").unwrap_or(path);
+        self.base.set_param(param, value)
+    }
+}
+
+impl Predictor for Boosting {
+    fn predict(&self, frame: &Frame) -> Result<Vec<f64>> {
+        if !self.fitted {
+            return Err(Error::NotFitted("Boosting::predict".into()));
+        }
+        let n = frame.nrows();
+        let k = self.classes.len();
+        let mut scores = vec![vec![0.0f64; k]; n];
+        for (m, alpha) in &self.members {
+            let preds = m.predict(frame)?;
+            for (r, p) in preds.iter().enumerate() {
+                let cls = p.round() as i64;
+                if let Some(ci) = self.classes.iter().position(|c| *c == cls) {
+                    scores[r][ci] += *alpha;
+                }
+            }
+        }
+        Ok(scores
+            .iter()
+            .map(|row| {
+                let mut best = 0;
+                for c in 1..k {
+                    if row[c] > row[best] {
+                        best = c;
+                    }
+                }
+                self.classes[best] as f64
+            })
+            .collect())
     }
 }
 
@@ -473,6 +673,28 @@ mod tests {
             .seed(1);
         b.fit(&two_class()).unwrap();
         assert_eq!(b.predict(&probe()).unwrap(), vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn boosting_predicts_clusters() {
+        // Boost depth-1 stumps; the alpha-weighted vote should separate.
+        let mut b = Boosting::of(RandomForest::new().n_trees(1).max_depth(1))
+            .n_estimators(15)
+            .seed(1);
+        b.fit(&two_class()).unwrap();
+        assert_eq!(b.predict(&probe()).unwrap(), vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn boosting_is_seed_reproducible() {
+        let run = || {
+            let mut b = Boosting::of(RandomForest::new().n_trees(1).max_depth(1))
+                .n_estimators(10)
+                .seed(7);
+            b.fit(&two_class()).unwrap();
+            b.predict(&probe()).unwrap()
+        };
+        assert_eq!(run(), run());
     }
 
     #[cfg(feature = "model-selection")]

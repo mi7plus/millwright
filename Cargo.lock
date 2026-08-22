@@ -1957,6 +1957,7 @@ dependencies = [
  "plotters-statistical",
  "polars",
  "pyo3",
+ "rayon",
  "regression-diagnostics",
  "serde",
  "serde_json",

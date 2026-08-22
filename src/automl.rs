@@ -71,6 +71,7 @@ pub struct AutoML {
     cv: Box<dyn CrossValidator>,
     seed: u64,
     ensemble: bool,
+    parallel: bool,
 }
 
 impl AutoML {
@@ -84,6 +85,7 @@ impl AutoML {
             cv: Box::new(StratifiedKFold::new(5)),
             seed: 0,
             ensemble: true,
+            parallel: false,
         }
     }
 
@@ -96,6 +98,7 @@ impl AutoML {
             cv: Box::new(KFold::new(5)),
             seed: 0,
             ensemble: true,
+            parallel: false,
         }
     }
 
@@ -125,6 +128,14 @@ impl AutoML {
         self
     }
 
+    /// Evaluate candidate configurations in parallel over rayon (each CV run is
+    /// already fold-parallel; this adds parallelism across candidates). Uses the
+    /// trials cap and ignores the wall-clock budget's early cutoff.
+    pub fn parallel(mut self) -> Self {
+        self.parallel = true;
+        self
+    }
+
     /// Run the search and return the best deployable model with a leaderboard.
     pub fn fit(self, dataset: &Dataset) -> Result<AutoMLResult> {
         let mut candidates = match self.task {
@@ -139,19 +150,36 @@ impl AutoML {
             Budget::Minutes(_) => usize::MAX,
         };
 
-        let mut board: Vec<(String, f64, Pipeline)> = Vec::new();
-        for (label, pipe) in candidates {
-            if board.len() >= trial_cap {
-                break;
-            }
-            if let Budget::Minutes(m) = self.budget {
-                if start.elapsed().as_secs_f64() > m * 60.0 {
+        let mut board: Vec<(String, f64, Pipeline)> = if self.parallel {
+            // Candidate-level parallelism: evaluate the (capped) candidate set
+            // concurrently. Each CV run is itself fold-parallel; rayon nests fine.
+            use rayon::prelude::*;
+            candidates
+                .into_iter()
+                .take(trial_cap)
+                .collect::<Vec<_>>()
+                .into_par_iter()
+                .map(|(label, pipe)| -> Result<(String, f64, Pipeline)> {
+                    let score = cross_val_score(&pipe, dataset, self.cv.as_ref(), self.metric)?;
+                    Ok((label, score, pipe))
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            let mut board = Vec::new();
+            for (label, pipe) in candidates {
+                if board.len() >= trial_cap {
                     break;
                 }
+                if let Budget::Minutes(m) = self.budget {
+                    if start.elapsed().as_secs_f64() > m * 60.0 {
+                        break;
+                    }
+                }
+                let score = cross_val_score(&pipe, dataset, self.cv.as_ref(), self.metric)?;
+                board.push((label, score, pipe));
             }
-            let score = cross_val_score(&pipe, dataset, self.cv.as_ref(), self.metric)?;
-            board.push((label, score, pipe));
-        }
+            board
+        };
         if board.is_empty() {
             return Err(Error::Pipeline("AutoML evaluated no candidates".into()));
         }
@@ -464,6 +492,25 @@ mod tests {
             "label: {}",
             result.best_label()
         );
+    }
+
+    #[test]
+    fn parallel_search_matches_sequential() {
+        let ds = two_class();
+        let run = |parallel: bool| {
+            let mut a = AutoML::classifier()
+                .budget(Budget::trials(8))
+                .cv(StratifiedKFold::new(4))
+                .seed(3);
+            if parallel {
+                a = a.parallel();
+            }
+            a.fit(&ds).unwrap()
+        };
+        let seq = run(false);
+        let par = run(true);
+        assert_eq!(seq.best_label(), par.best_label());
+        assert!((seq.best_score() - par.best_score()).abs() < 1e-12);
     }
 
     #[test]

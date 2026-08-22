@@ -7,6 +7,14 @@ All notable changes to Millwright are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **rayon parallelism.** Cross-validation folds and search candidates now
+  evaluate in parallel: `cross_val_score` is fold-parallel, `Bagging` fits its
+  base estimators in parallel, and `AutoML::parallel()` adds candidate-level
+  parallelism. The core contract traits gained `Send + Sync` bounds (every
+  concrete model already satisfied them). Results stay seed-reproducible.
+- **`Boosting`** — SAMME adaptive boosting over any weak learner (an
+  `alpha`-weighted vote of models each reweighted toward the last round's
+  mistakes), joining `Voting`/`Bagging`/`Stacking`.
 - **Three more models over the smartcore backend:** `Knn` (k-nearest-neighbours),
   `Svc` (support vector classifier, linear or RBF, one-vs-one for multiclass),
   and `NaiveBayes` (Gaussian). All implement the same `Estimator`/`Predictor`

@@ -56,6 +56,7 @@ polars = { version = "=0.55.2", default-features = false, features = ["csv", "pa
 # --- general infrastructure: caret ranges, reproduced via Cargo.lock ---
 pyo3 = { version = "0.24", features = ["extension-module", "abi3-py39"], optional = true }
 ndarray = { version = "0.16", optional = true }
+rayon = { version = "1", optional = true }
 plotters = { version = "0.3.7", default-features = false, features = ["svg_backend", "all_series"], optional = true }
 tract-onnx = { version = "0.23", optional = true }
 axum = { version = "0.8", optional = true }
@@ -90,11 +91,13 @@ smartcore-backend = ["dep:smartcore"]
 preprocessing = ["dep:imbalance-rs", "dep:ndarray"]
 
 # Cross-validation splitters, scoring, and grid/random search over a pipeline.
-model-selection = ["dep:model-selection-rs", "dep:ndarray"]
+# CV folds and search candidates are evaluated in parallel via rayon.
+model-selection = ["dep:model-selection-rs", "dep:ndarray", "dep:rayon"]
 
 # Voting / bagging / stacking meta-estimators, composed over the four traits.
-# Leak-free stacking uses the model-selection CV engine when it is enabled.
-ensemble = []
+# Leak-free stacking uses the model-selection CV engine when it is enabled;
+# bagging fits its base estimators in parallel via rayon.
+ensemble = ["dep:rayon"]
 
 # Ingest & EDA — the front of the lifecycle. A polars-backed, dtype-aware
 # `Table` (CSV/Parquet in, real string/categorical/datetime/null columns) that
