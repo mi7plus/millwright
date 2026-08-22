@@ -6,6 +6,8 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-23
+
 ### Added
 - **rayon parallelism.** Cross-validation folds and search candidates now
   evaluate in parallel: `cross_val_score` is fold-parallel, `Bagging` fits its
