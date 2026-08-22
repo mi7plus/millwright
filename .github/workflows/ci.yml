@@ -24,7 +24,7 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -41,7 +41,7 @@ jobs:
           - features: "" # default features
           - features: "--features full"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -54,7 +54,7 @@ jobs:
     env:
       RUSTDOCFLAGS: "-D warnings"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # `full` is every Rust-facing feature (python is a cdylib, doc'd separately
@@ -93,7 +93,7 @@ jobs:
           # Everything at once — the superset build, including both ndarray worlds.
           - { name: "full", features: "--features full" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -110,28 +110,38 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
 
-  msrv:
-    name: msrv (1.95)
+  # Compile and *run* the examples (the `test` jobs only build the library and
+  # its tests), plus a compile-check of the benchmarks. The declared MSRV
+  # (`rust-version` in Cargo.toml) is enforced by cargo for consumers; we do not
+  # run a dedicated old-toolchain job, since the floor is dictated entirely by
+  # transitive engine deps and would otherwise break on every one of their bumps.
+  examples:
+    name: examples & benches
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      # MSRV is dictated by the deepest transitive engine deps: `sysinfo` (via
-      # tract, feature `onnx`/`full`) requires Rust 1.95, and tract itself 1.91.
-      # The committed lockfile makes the build reproducible on that floor.
-      - uses: dtolnay/rust-toolchain@1.95
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --locked --features full
+      - name: run every example
+        run: |
+          for ex in spine explore trust workflow backends insight portability operations specialized automl; do
+            echo "::group::$ex"
+            cargo run --locked --features full --example "$ex"
+            echo "::endgroup::"
+          done
+      - name: compile benchmarks
+        run: cargo bench --locked --features full --no-run
 
   package:
     name: package (publish dry-run)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       # No rust-cache here: `cargo publish` builds a copy under target/package,
       # which the cache action's post-step chokes on.
@@ -143,7 +153,7 @@ jobs:
     name: python wheel
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v5
         with:

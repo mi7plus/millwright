@@ -596,10 +596,13 @@ and Phase 8 owns it directly — *a framework you can bet on*:
   well-separated class labels for the stochastic ones. If an engine bump moves a
   number, the diff makes it impossible to miss.
 - **Feature-matrix CI.** [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
-  runs `fmt`, `clippy -D warnings`, docs, an MSRV (1.95) build, and the test suite
-  across the feature matrix — from `--no-default-features` (bare core) through
-  each feature to `full`, plus Windows/macOS on the default install and a maturin
-  wheel build for Python.
+  runs `fmt`, `clippy -D warnings`, docs, and the test suite across the feature
+  matrix — from `--no-default-features` (bare core) through each feature to
+  `full` — plus Windows/macOS, the runnable examples, a benchmark compile-check,
+  a `cargo publish --dry-run`, and a maturin wheel. The MSRV
+  (`rust-version = 1.95`, dep-dictated) is enforced by cargo for consumers.
+- **Benchmarks.** `cargo bench` (`benches/throughput.rs`) times the boundary
+  conversion and core fit/predict — the numbers behind the "Rust speed" claim.
 
 Run the suite yourself:
 

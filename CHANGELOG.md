@@ -26,13 +26,21 @@ All notable changes to Millwright are recorded here. The format follows
   `linear_regression`, and `evaluate()`.
 - **Examples** — `explore` (ingest → profile → pipeline) and `trust`
   (calibration → reliability → anomaly detection).
+- **Benchmarks** — `benches/throughput.rs` (criterion): the boundary conversion
+  and core fit/predict, backing the "Rust speed" claim.
+- **One-hot ingest** — `Table::to_frame_with` / `into_dataset_with` and a
+  `CategoryEncoding` enum: lower nominal categories to 0/1 indicator columns
+  instead of ordinal codes.
 
 ### Changed
 
 - Exact-version pins on every engine crate; `Cargo.lock` committed; a
-  feature-matrix CI (fmt, clippy `-D warnings`, docs, MSRV, matrix, OS, wheel).
-- MSRV is **1.95** (driven by transitive engine deps — `sysinfo` via tract, and
-  polars); the default install needs 1.85.
+  feature-matrix CI (fmt, clippy `-D warnings`, docs, matrix, OS, examples,
+  benches, publish dry-run, wheel).
+- `selection.rs` split into `selection/{scoring,cv,search}`.
+- MSRV is **1.95** (dep-dictated — `sysinfo` via tract, and polars); enforced by
+  cargo via `rust-version` rather than a dedicated CI job (which would break on
+  every transitive bump). The default install needs 1.85.
 - De-staled the crate and module docs (no more "Phase 0 · the spine").
 
 ### Fixed

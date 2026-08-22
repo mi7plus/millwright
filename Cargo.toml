@@ -66,6 +66,12 @@ ndarray015 = { package = "ndarray", version = "0.15", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+criterion = "0.5"
+
+[[bench]]
+name = "throughput"
+harness = false
+required-features = ["smartcore-backend"]
 
 [features]
 # Phase 0 · THE SPINE — the smartcore backend is the first (and default) engine.

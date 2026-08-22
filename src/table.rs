@@ -180,19 +180,31 @@ impl Table {
         series_strings(self.series(name)?)
     }
 
-    /// Lower the whole table to a numeric [`Frame`]: numeric/boolean/datetime
-    /// columns cast to `f64`, categoricals label-encoded, nulls becoming `NaN`
-    /// (so a downstream [`SimpleImputer`](crate::transform::SimpleImputer)
-    /// catches them).
+    /// Lower the whole table to a numeric [`Frame`], label-encoding categoricals
+    /// (nulls become `NaN`, so a downstream
+    /// [`SimpleImputer`](crate::transform::SimpleImputer) catches them).
     pub fn to_frame(&self) -> Result<Frame> {
+        self.to_frame_with(CategoryEncoding::Label)
+    }
+
+    /// Lower to a numeric [`Frame`] with an explicit categorical encoding —
+    /// [`CategoryEncoding::OneHot`] expands nominal columns into 0/1 indicator
+    /// columns rather than misrepresenting them as ordinal codes.
+    pub fn to_frame_with(&self, encoding: CategoryEncoding) -> Result<Frame> {
         let names = self.column_names();
-        self.frame_from(&names)
+        self.frame_from(&names, encoding)
     }
 
     /// Lower to a [`Dataset`]: every column except `target` becomes the feature
-    /// frame, and `target` becomes the label vector (label-encoded if it is
-    /// categorical, so a classification target reads as integer classes).
+    /// frame (label-encoded categoricals), and `target` becomes the label vector.
     pub fn into_dataset(&self, target: &str) -> Result<Dataset> {
+        self.into_dataset_with(target, CategoryEncoding::Label)
+    }
+
+    /// Like [`into_dataset`](Self::into_dataset) but with an explicit feature
+    /// encoding. The target is always label-encoded (a single column), whatever
+    /// the feature encoding.
+    pub fn into_dataset_with(&self, target: &str, encoding: CategoryEncoding) -> Result<Dataset> {
         if self.series(target).is_err() {
             return Err(Error::Schema(format!(
                 "into_dataset: no target column '{target}'"
@@ -208,7 +220,7 @@ impl Table {
                 "into_dataset: table has no feature columns".into(),
             ));
         }
-        let features = self.frame_from(&feature_names)?;
+        let features = self.frame_from(&feature_names, encoding)?;
         let target_col = self
             .column_f64(target)?
             .into_iter()
@@ -217,25 +229,66 @@ impl Table {
         Dataset::new(features, target_col)
     }
 
-    /// Build a row-major [`Frame`] from a subset of columns, in the given order.
-    fn frame_from(&self, names: &[String]) -> Result<Frame> {
+    /// Build a row-major [`Frame`] from a subset of columns, in the given order,
+    /// applying `encoding` to categorical columns.
+    fn frame_from(&self, names: &[String], encoding: CategoryEncoding) -> Result<Frame> {
         let nrows = self.nrows();
-        let ncols = names.len();
-        let cols: Vec<Vec<f64>> = names
-            .iter()
-            .map(|n| {
-                self.column_f64(n)
-                    .map(|c| c.into_iter().map(|v| v.unwrap_or(f64::NAN)).collect())
-            })
-            .collect::<Result<_>>()?;
+        let mut out_names: Vec<String> = Vec::new();
+        let mut out_cols: Vec<Vec<f64>> = Vec::new();
+
+        for name in names {
+            if encoding == CategoryEncoding::OneHot && self.kind(name)? == ColKind::Categorical {
+                let values = self.column_strings(name)?;
+                let mut distinct: Vec<String> = values.iter().flatten().cloned().collect();
+                distinct.sort();
+                distinct.dedup();
+                for cat in &distinct {
+                    out_names.push(format!("{name}={cat}"));
+                    out_cols.push(
+                        values
+                            .iter()
+                            .map(|v| {
+                                if v.as_deref() == Some(cat.as_str()) {
+                                    1.0
+                                } else {
+                                    0.0
+                                }
+                            })
+                            .collect(),
+                    );
+                }
+            } else {
+                out_names.push(name.clone());
+                out_cols.push(
+                    self.column_f64(name)?
+                        .into_iter()
+                        .map(|v| v.unwrap_or(f64::NAN))
+                        .collect(),
+                );
+            }
+        }
+
+        let ncols = out_names.len();
         let mut buf = vec![0.0; nrows * ncols];
-        for (c, col) in cols.iter().enumerate() {
+        for (c, col) in out_cols.iter().enumerate() {
             for (r, &v) in col.iter().enumerate() {
                 buf[r * ncols + c] = v;
             }
         }
-        Frame::new(buf, nrows, ncols, names.to_vec())
+        Frame::new(buf, nrows, ncols, out_names)
     }
+}
+
+/// How categorical columns are lowered into the numeric [`Frame`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum CategoryEncoding {
+    /// Map each category to an integer code — compact, but implies an ordering
+    /// the values may not have.
+    #[default]
+    Label,
+    /// Expand each category into one 0/1 indicator column per value, named
+    /// `"{col}={value}"` — the nominal-correct choice for linear and tree models.
+    OneHot,
 }
 
 /// Cast a series to `f64`, routing temporal types through their integer
@@ -326,5 +379,22 @@ mod tests {
         let df = df!("x" => (0..100).map(|i| i as f64).collect::<Vec<f64>>()).unwrap();
         let t = Table::from_polars(df);
         assert_eq!(t.head(10).nrows(), 10);
+    }
+
+    #[test]
+    fn one_hot_encoding_expands_categoricals() {
+        // c in {x,y,z} -> 3 indicator columns; numeric n and bool b pass through.
+        let f = sample().to_frame_with(CategoryEncoding::OneHot).unwrap();
+        for col in ["n", "c=x", "c=y", "c=z", "b"] {
+            assert!(
+                f.columns().contains(&col.to_string()),
+                "missing column {col}; got {:?}",
+                f.columns()
+            );
+        }
+        // row 0's category is "x"
+        let cx = f.column_index("c=x").unwrap();
+        assert_eq!(f.get(0, cx), 1.0);
+        assert_eq!(f.get(3, cx), 0.0); // row 3 is "z"
     }
 }

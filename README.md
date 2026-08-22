@@ -191,9 +191,10 @@ single-author engine crates.
   transforms, metric formulas), well-separated class labels for the stochastic
   ones. An engine bump that moves a number shows up as a diff.
 - **Feature-matrix CI** (`.github/workflows/ci.yml`): `fmt`, `clippy -D warnings`,
-  docs, an MSRV (1.95) build, and the test suite across the feature matrix — from
-  `--no-default-features` through each feature to `full`, plus Windows/macOS on
-  the default install and a maturin wheel for Python.
+  docs, and the test suite across the feature matrix — from `--no-default-features`
+  through each feature to `full` — plus Windows/macOS, the runnable examples, a
+  benchmark compile-check, a `cargo publish --dry-run`, and a maturin wheel. The
+  MSRV (`rust-version = 1.95`, dep-dictated) is enforced by cargo for consumers.
 - **The tutorial** ([`GUIDE.md`](GUIDE.md) + [`guide.html`](guide.html)): the
   design brief's lifecycle, re-cast as a hands-on guide.
 

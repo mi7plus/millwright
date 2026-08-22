@@ -148,7 +148,7 @@ pub mod prelude {
     #[cfg(feature = "eda")]
     pub use crate::profile::{Alert, ColumnProfile, Profile, TargetKind, TargetProfile};
     #[cfg(feature = "eda")]
-    pub use crate::table::{ColKind, Table};
+    pub use crate::table::{CategoryEncoding, ColKind, Table};
 
     #[cfg(feature = "explain")]
     pub use crate::explain::{permutation_importance, Explain, Explainer, Explanation};
