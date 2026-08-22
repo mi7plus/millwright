@@ -309,6 +309,11 @@ impl Profile {
     /// low-cardinality categoricals, and a standard scaler over the numerics.
     /// The result has no estimator — add yours with
     /// [`Pipeline::estimator`](crate::pipeline::Pipeline::estimator).
+    ///
+    /// This assumes label-encoded input (the default
+    /// [`Table::into_dataset`](crate::table::Table::into_dataset)), so don't also
+    /// lower with [`CategoryEncoding::OneHot`](crate::table::CategoryEncoding),
+    /// or the categoricals would be encoded twice.
     pub fn suggest_pipeline(&self) -> Pipeline {
         let mut pipe = Pipeline::new();
         if self.missingness.total > 0 {

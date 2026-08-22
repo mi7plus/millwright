@@ -27,7 +27,7 @@ use std::path::Path;
 use polars::prelude::*;
 
 use crate::error::{Error, Result};
-use crate::frame::{Dataset, Frame};
+use crate::frame::{Dataset, Dtype, Frame};
 
 fn polars_err<E: std::fmt::Display>(e: E) -> Error {
     Error::Backend(format!("polars: {e}"))
@@ -235,15 +235,19 @@ impl Table {
         let nrows = self.nrows();
         let mut out_names: Vec<String> = Vec::new();
         let mut out_cols: Vec<Vec<f64>> = Vec::new();
+        let mut out_dtypes: Vec<Dtype> = Vec::new();
 
         for name in names {
-            if encoding == CategoryEncoding::OneHot && self.kind(name)? == ColKind::Categorical {
+            let is_cat = self.kind(name)? == ColKind::Categorical;
+            if encoding == CategoryEncoding::OneHot && is_cat {
+                // expand to 0/1 indicator columns — these are numeric
                 let values = self.column_strings(name)?;
                 let mut distinct: Vec<String> = values.iter().flatten().cloned().collect();
                 distinct.sort();
                 distinct.dedup();
                 for cat in &distinct {
                     out_names.push(format!("{name}={cat}"));
+                    out_dtypes.push(Dtype::Numeric);
                     out_cols.push(
                         values
                             .iter()
@@ -258,7 +262,14 @@ impl Table {
                     );
                 }
             } else {
+                // numeric passthrough, or a label-encoded categorical that keeps
+                // its Categorical dtype so a downstream encoder knows what it is
                 out_names.push(name.clone());
+                out_dtypes.push(if is_cat {
+                    Dtype::Categorical
+                } else {
+                    Dtype::Numeric
+                });
                 out_cols.push(
                     self.column_f64(name)?
                         .into_iter()
@@ -275,7 +286,7 @@ impl Table {
                 buf[r * ncols + c] = v;
             }
         }
-        Frame::new(buf, nrows, ncols, out_names)
+        Frame::new(buf, nrows, ncols, out_names)?.with_dtypes(out_dtypes)
     }
 }
 
@@ -372,6 +383,13 @@ mod tests {
         let ds = sample().into_dataset("b").unwrap();
         assert_eq!(ds.features().shape(), (4, 2)); // n, c
         assert_eq!(ds.target(), &[1.0, 0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn to_frame_marks_categorical_dtype() {
+        let f = sample().to_frame().unwrap(); // Label mode
+        assert_eq!(f.dtype(f.column_index("c").unwrap()), Dtype::Categorical);
+        assert_eq!(f.dtype(f.column_index("n").unwrap()), Dtype::Numeric);
     }
 
     #[test]

@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 
 use crate::error::{Error, Result};
-use crate::frame::{Dataset, Frame};
+use crate::frame::{Dataset, Dtype, Frame};
 use crate::traits::{ParamValue, Transformer};
 
 /// Standardize columns to zero mean and unit variance: `(x - mean) / std`.
@@ -70,6 +70,10 @@ impl Transformer for StandardScaler {
         let mut means = vec![0.0; p];
         let mut stds = vec![1.0; p];
         for c in 0..p {
+            // pass categorical columns through unchanged (defaults are identity)
+            if frame.dtype(c) == Dtype::Categorical {
+                continue;
+            }
             let col = frame.column(c);
             let mean = col.iter().sum::<f64>() / n as f64;
             let var = col.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n as f64;
@@ -100,7 +104,7 @@ impl Transformer for StandardScaler {
                 buf.push((frame.get(r, c) - self.means[c]) / self.stds[c]);
             }
         }
-        Frame::new(buf, n, p, self.columns.clone())
+        Frame::new(buf, n, p, self.columns.clone())?.with_dtypes(frame.dtypes().to_vec())
     }
 
     fn set_param(&mut self, name: &str, value: ParamValue) -> Result<()> {
@@ -152,6 +156,10 @@ impl Transformer for MinMaxScaler {
         let mut mins = vec![0.0; p];
         let mut ranges = vec![1.0; p];
         for c in 0..p {
+            // pass categorical columns through unchanged (defaults are identity)
+            if frame.dtype(c) == Dtype::Categorical {
+                continue;
+            }
             let col = frame.column(c);
             let min = col.iter().cloned().fold(f64::INFINITY, f64::min);
             let max = col.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -178,7 +186,7 @@ impl Transformer for MinMaxScaler {
                 buf.push((frame.get(r, c) - self.mins[c]) / self.ranges[c]);
             }
         }
-        Frame::new(buf, n, p, self.columns.clone())
+        Frame::new(buf, n, p, self.columns.clone())?.with_dtypes(frame.dtypes().to_vec())
     }
 
     fn as_affine(&self) -> Option<(Vec<f64>, Vec<f64>)> {
@@ -279,7 +287,7 @@ impl Transformer for SimpleImputer {
                 buf.push(if v.is_nan() { self.fills[c] } else { v });
             }
         }
-        Frame::new(buf, n, p, self.columns.clone())
+        Frame::new(buf, n, p, self.columns.clone())?.with_dtypes(frame.dtypes().to_vec())
     }
 }
 
@@ -352,11 +360,15 @@ impl Transformer for OneHotEncoder {
     }
 
     fn fit(&mut self, frame: &Frame) -> Result<()> {
+        // If the frame carries real dtypes (e.g. it came from a `Table`), trust
+        // them; only fall back to the value heuristic when nothing is marked.
+        let schema_known = self.select.is_none() && !frame.categorical_columns().is_empty();
         let mut categories = Vec::with_capacity(frame.ncols());
         for (c, name) in frame.columns().iter().enumerate() {
             let col = frame.column(c);
             let selected = match &self.select {
                 Some(names) => names.iter().any(|n| n == name),
+                None if schema_known => frame.dtype(c) == Dtype::Categorical,
                 None => is_integral(&col) && distinct_sorted(&col).len() <= self.max_cardinality,
             };
             let cats = if selected {
@@ -478,6 +490,11 @@ impl Transformer for Winsorize {
         let (_, p) = frame.shape();
         let mut bounds = Vec::with_capacity(p);
         for c in 0..p {
+            // never clip a categorical column
+            if frame.dtype(c) == Dtype::Categorical {
+                bounds.push((f64::NEG_INFINITY, f64::INFINITY));
+                continue;
+            }
             let mut vals: Vec<f64> = frame
                 .column(c)
                 .into_iter()
@@ -508,7 +525,7 @@ impl Transformer for Winsorize {
                 buf.push(if v.is_nan() { v } else { v.clamp(lo, hi) });
             }
         }
-        Frame::new(buf, n, p, self.columns.clone())
+        Frame::new(buf, n, p, self.columns.clone())?.with_dtypes(frame.dtypes().to_vec())
     }
 }
 
@@ -549,6 +566,11 @@ impl Transformer for PowerTransform {
         let (_, p) = frame.shape();
         let mut lambdas = Vec::with_capacity(p);
         for c in 0..p {
+            // lambda 1.0 is the Yeo-Johnson identity — leave categoricals alone
+            if frame.dtype(c) == Dtype::Categorical {
+                lambdas.push(1.0);
+                continue;
+            }
             let vals: Vec<f64> = frame
                 .column(c)
                 .into_iter()
@@ -579,7 +601,7 @@ impl Transformer for PowerTransform {
                 });
             }
         }
-        Frame::new(buf, n, p, self.columns.clone())
+        Frame::new(buf, n, p, self.columns.clone())?.with_dtypes(frame.dtypes().to_vec())
     }
 }
 
@@ -904,6 +926,46 @@ mod tests {
         // a standardized (mean 0), b untouched
         assert!((out.column(0).iter().sum::<f64>()).abs() < 1e-9);
         assert_eq!(out.column(1), vec![100.0, 200.0, 300.0]);
+    }
+
+    #[test]
+    fn onehot_prefers_schema_over_heuristic() {
+        // Both columns are low-cardinality integers, so the value heuristic would
+        // one-hot *both*. With the schema, only the Categorical one is encoded.
+        let f = Frame::from_rows(
+            vec![vec![0.0, 1.0], vec![1.0, 2.0], vec![2.0, 3.0]],
+            vec!["cat".into(), "code".into()],
+        )
+        .unwrap()
+        .with_dtypes(vec![Dtype::Categorical, Dtype::Numeric])
+        .unwrap();
+
+        let out = OneHotEncoder::infer().fit_transform(&f).unwrap();
+        assert_eq!(
+            out.columns(),
+            &[
+                "cat=0".to_string(),
+                "cat=1".into(),
+                "cat=2".into(),
+                "code".into()
+            ]
+        );
+    }
+
+    #[test]
+    fn scaler_passes_categorical_columns_through() {
+        let f = Frame::from_rows(
+            vec![vec![0.0, 10.0], vec![1.0, 20.0], vec![2.0, 30.0]],
+            vec!["cat".into(), "num".into()],
+        )
+        .unwrap()
+        .with_dtypes(vec![Dtype::Categorical, Dtype::Numeric])
+        .unwrap();
+
+        let out = StandardScaler::new().fit_transform(&f).unwrap();
+        assert_eq!(out.column(0), vec![0.0, 1.0, 2.0]); // categorical untouched
+        assert!(out.column(1).iter().sum::<f64>().abs() < 1e-9); // numeric standardized
+        assert_eq!(out.dtype(0), Dtype::Categorical); // dtype preserved
     }
 
     #[test]

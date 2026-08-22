@@ -13,15 +13,30 @@ use std::path::Path;
 
 use crate::error::{Error, Result};
 
+/// The role of a column, so schema-aware steps (encoders, profiling) need not
+/// guess. Defaults to [`Numeric`](Dtype::Numeric); [`Table`](crate::table::Table)
+/// marks the columns it knows are [`Categorical`](Dtype::Categorical) as it
+/// lowers into a `Frame`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dtype {
+    /// A continuous or already-numeric column.
+    Numeric,
+    /// A nominal category, carried as an integer code.
+    Categorical,
+}
+
 /// A contiguous, row-major table of `f64` with named columns.
 ///
-/// Layout: element `(r, c)` lives at `buf[r * ncols + c]`.
+/// Layout: element `(r, c)` lives at `buf[r * ncols + c]`. Each column also
+/// carries a [`Dtype`] (defaulting to `Numeric`) so downstream steps know which
+/// columns are truly categorical rather than inferring it from the values.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frame {
     buf: Vec<f64>,
     nrows: usize,
     ncols: usize,
     columns: Vec<String>,
+    dtypes: Vec<Dtype>,
 }
 
 impl Frame {
@@ -50,7 +65,22 @@ impl Frame {
             nrows,
             ncols,
             columns,
+            dtypes: vec![Dtype::Numeric; ncols],
         })
+    }
+
+    /// Set the per-column dtypes (builder). Fails if the count disagrees with
+    /// the number of columns.
+    pub fn with_dtypes(mut self, dtypes: Vec<Dtype>) -> Result<Self> {
+        if dtypes.len() != self.ncols {
+            return Err(Error::Schema(format!(
+                "{} dtypes for {} columns",
+                dtypes.len(),
+                self.ncols
+            )));
+        }
+        self.dtypes = dtypes;
+        Ok(self)
     }
 
     /// Build a frame from a vector of equal-length rows.
@@ -125,6 +155,23 @@ impl Frame {
         &self.columns
     }
 
+    /// The per-column dtypes (all [`Dtype::Numeric`] unless set).
+    pub fn dtypes(&self) -> &[Dtype] {
+        &self.dtypes
+    }
+
+    /// The dtype of column `c`.
+    pub fn dtype(&self, c: usize) -> Dtype {
+        self.dtypes[c]
+    }
+
+    /// The indices of columns marked [`Dtype::Categorical`].
+    pub fn categorical_columns(&self) -> Vec<usize> {
+        (0..self.ncols)
+            .filter(|&c| self.dtypes[c] == Dtype::Categorical)
+            .collect()
+    }
+
     /// The flat row-major backing buffer.
     pub fn buf(&self) -> &[f64] {
         &self.buf
@@ -172,6 +219,7 @@ impl Frame {
             nrows: idx.len(),
             ncols: self.ncols,
             columns: self.columns.clone(),
+            dtypes: self.dtypes.clone(),
         }
     }
 
@@ -268,6 +316,27 @@ mod tests {
         assert_eq!(f.get(0, 1), 2.0);
         assert!(f.get(1, 1).is_nan());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn dtypes_default_numeric_and_survive_selection() {
+        let f = Frame::from_rows(
+            vec![vec![1.0, 2.0], vec![3.0, 4.0]],
+            vec!["a".into(), "b".into()],
+        )
+        .unwrap();
+        assert_eq!(f.dtypes(), &[Dtype::Numeric, Dtype::Numeric]);
+
+        let typed = f
+            .with_dtypes(vec![Dtype::Categorical, Dtype::Numeric])
+            .unwrap();
+        assert_eq!(typed.categorical_columns(), vec![0]);
+        assert_eq!(typed.dtype(0), Dtype::Categorical);
+        // dtypes are preserved through a CV-style row selection
+        assert_eq!(
+            typed.select_rows(&[1]).dtypes(),
+            &[Dtype::Categorical, Dtype::Numeric]
+        );
     }
 
     #[test]

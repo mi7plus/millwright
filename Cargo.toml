@@ -11,6 +11,11 @@ readme = "README.md"
 keywords = ["machine-learning", "ml", "pipeline", "sklearn", "smartcore"]
 categories = ["science", "algorithms"]
 
+[package.metadata.docs.rs]
+# Document the whole Rust-facing surface (`python` is a cdylib built by maturin,
+# and needs a Python interpreter, so it is excluded from the docs.rs build).
+features = ["full"]
+
 [lib]
 # `cdylib` for the Python extension module (maturin); `rlib` for Rust consumers.
 crate-type = ["cdylib", "rlib"]

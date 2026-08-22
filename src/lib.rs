@@ -97,7 +97,7 @@ pub use error::{Error, Result};
 pub mod prelude {
     pub use crate::error::{Error, Result};
     pub use crate::evaluate::{Evaluate, Report, Task};
-    pub use crate::frame::{Dataset, Frame};
+    pub use crate::frame::{Dataset, Dtype, Frame};
     pub use crate::logistic::LogisticRegression;
     pub use crate::pipeline::Pipeline;
     pub use crate::traits::{

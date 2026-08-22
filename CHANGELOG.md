@@ -31,6 +31,12 @@ All notable changes to Millwright are recorded here. The format follows
 - **One-hot ingest** — `Table::to_frame_with` / `into_dataset_with` and a
   `CategoryEncoding` enum: lower nominal categories to 0/1 indicator columns
   instead of ordinal codes.
+- **Schema-aware preprocessing** — `Frame` carries a per-column `Dtype`; `Table`
+  marks categoricals as it lowers; scalers / `Winsorize` / `PowerTransform` pass
+  categorical columns through untouched, and `OneHotEncoder` encodes by dtype
+  rather than a value heuristic when the schema is known.
+- **Real-data validation** — an end-to-end integration test on Quinlan's
+  PlayTennis (`tests/real_data.rs`): CSV → profile → suggested pipeline → fit.
 
 ### Changed
 
