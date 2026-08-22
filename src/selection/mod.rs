@@ -172,6 +172,45 @@ mod tests {
         assert_eq!(search.predict(&test).unwrap(), vec![0.0, 1.0]);
     }
 
+    /// Two overlapping clusters with deterministic label noise — learnable but
+    /// imperfect, so a shallow-tree fold can predict the majority class and
+    /// leave F1 undefined (0/0). That fold used to poison the mean with NaN.
+    fn noisy_two_class_dataset() -> Dataset {
+        let mut rows = Vec::new();
+        let mut y = Vec::new();
+        for i in 0..40 {
+            let a = i as f64 * 0.1; // 0.0 .. 3.9
+            rows.push(vec![a, a]);
+            let base = if a > 2.0 { 1.0 } else { 0.0 };
+            // flip every 7th label to inject overlap
+            y.push(if i % 7 == 0 { 1.0 - base } else { base });
+        }
+        Dataset::new(
+            Frame::from_rows(rows, vec!["a".into(), "b".into()]).unwrap(),
+            y,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn grid_search_f1_stays_finite_on_noisy_data() {
+        let ds = noisy_two_class_dataset();
+        let pipe = Pipeline::new()
+            .step("scale", StandardScaler::new())
+            .estimator("rf", RandomForest::new());
+        let search = GridSearch::new(pipe, crate::grid! { "rf__max_depth" => [1, 2, 4] })
+            .cv(StratifiedKFold::new(5))
+            .scoring(Metric::F1)
+            .fit(&ds)
+            .unwrap();
+        let s = search.best_score();
+        assert!(s.is_finite(), "F1 best_score must be finite, got {s}");
+        assert!(
+            s > 0.0,
+            "F1 best_score should be > 0 on learnable data, got {s}"
+        );
+    }
+
     #[test]
     fn random_search_respects_n_iter() {
         let ds = two_class_dataset();

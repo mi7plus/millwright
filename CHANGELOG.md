@@ -28,6 +28,13 @@ All notable changes to Millwright are recorded here. The format follows
 - **`Table::from_frame`** (Rust): build a numeric `Table` from a `Frame`, so the
   numeric world can round-trip back into the typed one (e.g. to profile it).
 
+### Fixed
+- **Cross-validated F1 no longer returns `NaN`.** A fold whose predictions
+  contain no true positives left smartcore's F1 evaluating `0/0`; a single NaN
+  fold poisoned the CV mean and a search's `best_score`. An undefined F1 is now
+  0.0 (scikit-learn's `zero_division=0` convention), so `GridSearch(...).scoring(F1)`
+  yields finite, comparable scores.
+
 ## [0.1.1]
 
 ### Added
