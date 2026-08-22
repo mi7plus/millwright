@@ -45,7 +45,7 @@ pipe = (mw.<span class="f">Pipeline</span>()
 pipe.fit(train, y_train)
 preds   = pipe.predict(test)
 metrics = pipe.evaluate(test, y_test)        <span class="c"># -&gt; {"accuracy": …, "f1": …}</span></pre>
-      <p>The transformer / estimator objects (<code class="inl">StandardScaler</code>, <code class="inl">MinMaxScaler</code>, <code class="inl">SimpleImputer</code>, <code class="inl">OneHotEncoder</code>, <code class="inl">RandomForest</code>, <code class="inl">LinearRegression</code>) are the same engines as Rust. The older builder form — <code class="inl">pipe.standard_scaler()</code>, <code class="inl">pipe.random_forest()</code> — still works.</p>
+      <p>The transformer / estimator objects (<code class="inl">StandardScaler</code>, <code class="inl">MinMaxScaler</code>, <code class="inl">SimpleImputer</code>, <code class="inl">OneHotEncoder</code>, <code class="inl">RandomForest</code>, <code class="inl">LinearRegression</code>, <code class="inl">Knn</code>, <code class="inl">Svc</code>, <code class="inl">NaiveBayes</code>) are the same engines as Rust. The older builder form — <code class="inl">pipe.standard_scaler()</code>, <code class="inl">pipe.random_forest()</code> — still works.</p>
     </div>
   </section>
 

@@ -18,7 +18,9 @@ All notable changes to Millwright are recorded here. The format follows
 - **Three more models over the smartcore backend:** `Knn` (k-nearest-neighbours),
   `Svc` (support vector classifier, linear or RBF, one-vs-one for multiclass),
   and `NaiveBayes` (Gaussian). All implement the same `Estimator`/`Predictor`
-  contract, so they drop into pipelines, ensembles, and search unchanged.
+  contract, so they drop into pipelines, ensembles, and search unchanged — and
+  they are exposed to Python too (`mw.Knn`, `mw.Svc` / `mw.Svc.rbf()`,
+  `mw.NaiveBayes`, plus `pipe.knn()` / `pipe.svc()` / `pipe.naive_bayes()`).
 - **Python: a scikit-learn-shaped object API.** `mw.Frame` with `from_pandas` /
   `from_numpy` / `from_rows` ingest; composable transformer/estimator objects
   (`StandardScaler`, `MinMaxScaler`, `SimpleImputer`, `OneHotEncoder`,

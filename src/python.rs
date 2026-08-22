@@ -32,7 +32,7 @@ use std::collections::HashMap;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use crate::backends::smartcore::{LinearRegression, RandomForest};
+use crate::backends::smartcore::{Knn, LinearRegression, NaiveBayes, RandomForest, Svc};
 use crate::error::Error;
 use crate::evaluate::Report;
 use crate::frame::{Dataset, Frame};
@@ -359,6 +359,59 @@ impl PyLinearRegression {
     }
 }
 
+/// A k-nearest-neighbours classifier.
+#[pyclass(name = "Knn")]
+#[derive(Clone)]
+struct PyKnn {
+    k: usize,
+}
+#[pymethods]
+impl PyKnn {
+    #[new]
+    #[pyo3(signature = (k=5))]
+    fn new(k: usize) -> Self {
+        Self { k }
+    }
+}
+
+/// A support vector classifier (linear by default; pass `gamma` for an RBF
+/// kernel, or use `Svc.rbf()`).
+#[pyclass(name = "Svc")]
+#[derive(Clone)]
+struct PySvc {
+    c: f64,
+    gamma: Option<f64>,
+}
+#[pymethods]
+impl PySvc {
+    #[new]
+    #[pyo3(signature = (c=1.0, gamma=None))]
+    fn new(c: f64, gamma: Option<f64>) -> Self {
+        Self { c, gamma }
+    }
+    /// An RBF-kernel SVC.
+    #[staticmethod]
+    #[pyo3(signature = (gamma=0.5, c=1.0))]
+    fn rbf(gamma: f64, c: f64) -> Self {
+        Self {
+            c,
+            gamma: Some(gamma),
+        }
+    }
+}
+
+/// A Gaussian naive-Bayes classifier.
+#[pyclass(name = "NaiveBayes")]
+#[derive(Clone)]
+struct PyNaiveBayes;
+#[pymethods]
+impl PyNaiveBayes {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+}
+
 /// A pre-trained ONNX model (e.g. exported from scikit-learn or PyTorch), used
 /// as a pipeline's frozen estimator behind Millwright's preprocessing steps.
 #[cfg(feature = "onnx")]
@@ -421,13 +474,27 @@ fn set_estimator(
     if obj.extract::<PyLinearRegression>().is_ok() {
         return Ok(pipe.estimator(name, LinearRegression::new()));
     }
+    if let Ok(m) = obj.extract::<PyKnn>() {
+        return Ok(pipe.estimator(name, Knn::k(m.k)));
+    }
+    if let Ok(m) = obj.extract::<PySvc>() {
+        let mut model = Svc::new().c(m.c);
+        if let Some(g) = m.gamma {
+            model = model.gamma(g);
+        }
+        return Ok(pipe.estimator(name, model));
+    }
+    if obj.extract::<PyNaiveBayes>().is_ok() {
+        return Ok(pipe.estimator(name, NaiveBayes::new()));
+    }
     #[cfg(feature = "onnx")]
     if let Ok(m) = obj.extract::<PyOnnxModel>() {
         let model = crate::onnx::InferenceModel::load(&m.path).map_err(to_py_err)?;
         return Ok(pipe.estimator(name, model));
     }
     Err(PyValueError::new_err(
-        "estimator expects an estimator object (RandomForest, LinearRegression, OnnxModel)",
+        "estimator expects an estimator object \
+         (RandomForest, LinearRegression, Knn, Svc, NaiveBayes, OnnxModel)",
     ))
 }
 
@@ -537,7 +604,10 @@ impl PyPipeline {
     #[pyo3(signature = (name=None))]
     fn standard_scaler(&mut self, name: Option<String>) {
         let pipe = std::mem::take(&mut self.inner);
-        self.inner = pipe.step(name.unwrap_or_else(|| "scale".into()), StandardScaler::new());
+        self.inner = pipe.step(
+            name.unwrap_or_else(|| "scale".into()),
+            StandardScaler::new(),
+        );
     }
 
     /// Add a min-max scaler preprocessing step.
@@ -564,7 +634,10 @@ impl PyPipeline {
     #[pyo3(signature = (name=None))]
     fn one_hot(&mut self, name: Option<String>) {
         let pipe = std::mem::take(&mut self.inner);
-        self.inner = pipe.step(name.unwrap_or_else(|| "encode".into()), OneHotEncoder::infer());
+        self.inner = pipe.step(
+            name.unwrap_or_else(|| "encode".into()),
+            OneHotEncoder::infer(),
+        );
     }
 
     /// Set a random-forest estimator as the final step.
@@ -583,6 +656,31 @@ impl PyPipeline {
     fn linear_regression(&mut self, name: Option<String>) {
         let pipe = std::mem::take(&mut self.inner);
         self.inner = pipe.estimator(name.unwrap_or_else(|| "lr".into()), LinearRegression::new());
+    }
+
+    /// Set a k-nearest-neighbours classifier as the final step.
+    #[pyo3(signature = (name=None, k=5))]
+    fn knn(&mut self, name: Option<String>, k: usize) {
+        let pipe = std::mem::take(&mut self.inner);
+        self.inner = pipe.estimator(name.unwrap_or_else(|| "knn".into()), Knn::k(k));
+    }
+
+    /// Set a support vector classifier as the final step (RBF when `gamma` set).
+    #[pyo3(signature = (name=None, c=1.0, gamma=None))]
+    fn svc(&mut self, name: Option<String>, c: f64, gamma: Option<f64>) {
+        let mut model = Svc::new().c(c);
+        if let Some(g) = gamma {
+            model = model.gamma(g);
+        }
+        let pipe = std::mem::take(&mut self.inner);
+        self.inner = pipe.estimator(name.unwrap_or_else(|| "svc".into()), model);
+    }
+
+    /// Set a Gaussian naive-Bayes classifier as the final step.
+    #[pyo3(signature = (name=None))]
+    fn naive_bayes(&mut self, name: Option<String>) {
+        let pipe = std::mem::take(&mut self.inner);
+        self.inner = pipe.estimator(name.unwrap_or_else(|| "nb".into()), NaiveBayes::new());
     }
 
     // ---- fit / predict / evaluate ---------------------------------------
@@ -808,10 +906,7 @@ impl PyGridSearch {
     }
 
     /// Set the cross-validation strategy (chainable).
-    fn cv<'a>(
-        mut slf: PyRefMut<'a, Self>,
-        cv: &Bound<'_, PyAny>,
-    ) -> PyResult<PyRefMut<'a, Self>> {
+    fn cv<'a>(mut slf: PyRefMut<'a, Self>, cv: &Bound<'_, PyAny>) -> PyResult<PyRefMut<'a, Self>> {
         slf.cv = parse_cv(Some(cv))?;
         Ok(slf)
     }
@@ -895,6 +990,9 @@ fn millwright(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyOneHotEncoder>()?;
     m.add_class::<PyRandomForest>()?;
     m.add_class::<PyLinearRegression>()?;
+    m.add_class::<PyKnn>()?;
+    m.add_class::<PySvc>()?;
+    m.add_class::<PyNaiveBayes>()?;
     #[cfg(feature = "onnx")]
     m.add_class::<PyOnnxModel>()?;
     #[cfg(feature = "explain")]
