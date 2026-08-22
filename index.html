@@ -194,6 +194,8 @@
 
   /* ---- two-up lists ---- */
   .grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  .grid2>div{min-width:0}          /* let columns shrink so wide tables/pre scroll instead of overflowing */
+  .grid2 table{min-width:0}        /* the small in-column tables size to content, no forced 560px */
   @media(max-width:720px){.grid2{grid-template-columns:1fr}}
   ul.clean{list-style:none; margin:.2rem 0 0; padding:0; display:flex; flex-direction:column; gap:.55rem}
   ul.clean li{position:relative; padding-left:1.2rem; font-size:.94rem; color:var(--ink-soft); line-height:1.5}
@@ -225,6 +227,7 @@
       <a href="#features">features</a>
       <a href="guide.html" class="guidelink">guide</a>
       <a href="https://crates.io/crates/millwright" class="repo">crates.io ↗</a>
+      <a href="https://pypi.org/project/millwright/" class="repo">PyPI ↗</a>
       <a href="https://github.com/mi7plus/millwright" class="repo">GitHub ↗</a>
     </nav>
   </div>
@@ -247,6 +250,7 @@
       <div class="cta">
         <a class="btn primary" href="guide.html">Read the guide →</a>
         <a class="btn" href="https://crates.io/crates/millwright">crates.io</a>
+        <a class="btn" href="https://pypi.org/project/millwright/">PyPI</a>
         <a class="btn" href="https://github.com/mi7plus/millwright">GitHub</a>
         <code>cargo add millwright</code>
       </div>
@@ -732,7 +736,7 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
 <footer>
   <div class="wrap">
     <span class="mono">⚙ millwright — proven Rust crates, assembled into one machine</span>
-    <span class="mono"><a href="guide.html">guide</a> · <a href="https://crates.io/crates/millwright">crates.io</a> · <a href="https://docs.rs/millwright">docs.rs</a> · <a href="https://github.com/mi7plus/millwright">github</a></span>
+    <span class="mono"><a href="guide.html">guide</a> · <a href="https://crates.io/crates/millwright">crates.io</a> · <a href="https://pypi.org/project/millwright/">PyPI</a> · <a href="https://docs.rs/millwright">docs.rs</a> · <a href="https://github.com/mi7plus/millwright">github</a></span>
   </div>
 </footer>
 </body></html>
