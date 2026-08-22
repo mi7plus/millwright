@@ -28,17 +28,28 @@ there because it needs a Python interpreter.
 
 ## Python wheel → PyPI
 
-Built by [maturin](https://www.maturin.rs/) from the `python` feature:
+The recommended path is the **`release-python.yml`** workflow, which builds
+Linux (x86_64 + aarch64), macOS (x86_64 + aarch64), and Windows wheels plus an
+sdist, and publishes them together. One-time setup:
 
-```bash
-maturin build --release          # wheels land in target/wheels/
-maturin publish                  # needs a PyPI token
-```
+1. Add your PyPI API token as a repository secret named **`PYPI_API_TOKEN`**
+   (Settings → Secrets and variables → Actions → New repository secret).
 
-## Tag
+Then every release is just a tag:
 
 ```bash
 git tag vX.Y.Z && git push --tags
+```
+
+The workflow builds all platforms and publishes on the tag. A manual run
+(Actions → release-python → Run workflow) builds the wheels *without* publishing,
+for a dry run.
+
+To publish a single platform's wheel by hand instead (only installable on that
+OS), from a Developer PowerShell/Prompt with a Python toolchain:
+
+```bash
+maturin publish            # needs MATURIN_PYPI_TOKEN set
 ```
 
 ## Notes
