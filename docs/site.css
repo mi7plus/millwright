@@ -45,8 +45,7 @@ body{
 
 h1,h2,h3{line-height:1.15; text-wrap:balance; margin:0; letter-spacing:-.012em}
 h2{font-size:clamp(1.5rem,1.1rem + 1.5vw,2rem); font-weight:650; margin-bottom:.5rem}
-h3{font-size:1.12rem; font-weight:650; margin:0 0 .3rem}
-.lede{font-size:1.16rem; color:var(--ink-soft); line-height:1.55}
+h3{font-size:1.12rem; font-weight:650; margin:1.4rem 0 .3rem}
 p{margin:0 0 1rem; max-width:var(--measure)}
 a{color:var(--oxide-ink); text-underline-offset:2px; text-decoration-thickness:1px}
 strong{font-weight:650}
@@ -151,69 +150,3 @@ footer .wrap{display:flex; justify-content:space-between; flex-wrap:wrap; gap:1r
 footer .mono{font-family:var(--font-mono)}
 ::selection{background:var(--oxide); color:#fff}
 :focus-visible{outline:2px solid var(--oxide); outline-offset:2px; border-radius:3px}
-
-/* =====================================================================
-   Landing page (the design brief, index.html) — a larger hero plus the
-   brief-only components (lifecycle flow, architecture stack, spotlights).
-   `<body class="landing">` opts index.html into the bigger hero/spacing.
-   ===================================================================== */
-.landing .hero{padding:76px 0 40px}
-.landing .hero h1{font-size:clamp(2.5rem,1.6rem + 3.6vw,4.1rem)}
-.landing .hero .lede{max-width:60ch; font-size:1.3rem; color:var(--ink)}
-.landing section{padding:40px 0}
-.landing section > .wrap > .head{margin-bottom:1.8rem}
-
-.top nav a.guidelink{background:var(--oxide-tint); color:var(--oxide-ink); padding:.22rem .58rem; border-radius:6px; font-weight:600}
-.top nav a.guidelink:hover{background:var(--oxide); color:#fff}
-
-.pitch{display:flex; flex-wrap:wrap; gap:.5rem; margin-top:1.6rem}
-.pill{font-family:var(--font-mono); font-size:.78rem; padding:.32rem .7rem; border-radius:100px; border:1px solid var(--line); background:var(--surface); color:var(--ink-soft)}
-.pill b{color:var(--oxide); font-weight:600}
-
-.cta{display:flex; flex-wrap:wrap; align-items:center; gap:.65rem; margin-top:1.9rem}
-.btn{font-family:var(--font-mono); font-size:.82rem; font-weight:600; text-decoration:none; padding:.58rem .95rem; border-radius:8px; border:1px solid var(--line); background:var(--surface); color:var(--ink); box-shadow:var(--shadow)}
-.btn:hover{border-color:var(--oxide)}
-.btn.primary{background:var(--oxide); border-color:var(--oxide); color:#fff}
-.btn.primary:hover{background:var(--oxide-ink); border-color:var(--oxide-ink)}
-.cta code{font-family:var(--font-mono); font-size:.8rem; color:var(--ink-soft); background:var(--surface-3); padding:.5rem .7rem; border-radius:7px; border:1px solid var(--line)}
-
-/* lifecycle flow */
-.flow{display:grid; grid-template-columns:repeat(3,1fr); gap:10px}
-@media(max-width:900px){.flow{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:520px){.flow{grid-template-columns:1fr}}
-.stage{position:relative; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:14px 14px 15px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:.15rem; min-height:118px}
-.stage .n{font-family:var(--font-mono); font-size:.72rem; color:var(--ink-faint); letter-spacing:.06em}
-.stage h4{margin:.1rem 0 .15rem; font-size:1rem; font-weight:650}
-.stage .by{font-family:var(--font-mono); font-size:.74rem; color:var(--oxide); line-height:1.5}
-.stage .note{font-size:.82rem; color:var(--ink-soft); line-height:1.4}
-.stage.live{border-color:var(--patina); box-shadow:0 0 0 1px var(--patina) inset, var(--shadow)}
-.stage.live .by{color:var(--patina)}
-
-/* architecture stack */
-.stack{display:flex; flex-direction:column; gap:8px; margin-top:.5rem}
-.layer{border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px; display:grid; grid-template-columns:180px 1fr; gap:16px; align-items:center; background:var(--surface)}
-@media(max-width:640px){.layer{grid-template-columns:1fr; gap:6px}}
-.layer .lname{font-weight:650; font-size:.98rem}
-.layer .lname .k{display:block; font-family:var(--font-mono); font-size:.7rem; color:var(--ink-faint); font-weight:500; letter-spacing:.08em; text-transform:uppercase; margin-top:.15rem}
-.layer .chips{display:flex; flex-wrap:wrap; gap:6px}
-.chip{font-family:var(--font-mono); font-size:.76rem; padding:.24rem .55rem; border-radius:6px; border:1px solid var(--line); background:var(--surface-2); color:var(--ink-soft)}
-.layer.l0{background:var(--oxide-tint); border-color:color-mix(in srgb,var(--oxide) 30%,var(--line))}
-.layer.l0 .lname{color:var(--oxide-ink)}
-.layer.l1{background:var(--surface-2)}
-.layer.l1 .chip{border-color:color-mix(in srgb,var(--steel) 30%,var(--line)); color:var(--steel)}
-.layer .chip.own{color:var(--oxide); border-color:color-mix(in srgb,var(--oxide) 35%,var(--line)); background:var(--surface)}
-.stacknote{text-align:center; font-family:var(--font-mono); font-size:.72rem; color:var(--ink-faint); letter-spacing:.05em; padding:4px 0}
-
-/* two-up cards + spotlights */
-.split{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:1rem}
-@media(max-width:720px){.split{grid-template-columns:1fr}}
-.card .conv{font-family:var(--font-mono); font-size:.78rem; color:var(--ink-soft); background:var(--surface-2); border-radius:8px; padding:10px 12px; margin-top:.6rem; line-height:1.6}
-.card .conv b{color:var(--patina)}
-.edagrid{display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:.4rem 0 1.9rem}
-@media(max-width:760px){.edagrid{grid-template-columns:1fr}}
-.acard{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:13px 15px; box-shadow:var(--shadow)}
-.acard .lab{font-family:var(--font-mono); font-size:.71rem; letter-spacing:.06em; text-transform:uppercase; color:var(--oxide); font-weight:600}
-.acard p{margin:.3rem 0 0; font-size:.85rem; color:var(--ink-soft); line-height:1.5}
-td .step{font-family:var(--font-mono); font-size:.82rem; color:var(--oxide)}
-td .cr{font-family:var(--font-mono); font-size:.82rem; color:var(--ink-soft)}
-ul.clean.warn li::before{background:var(--steel)}
