@@ -6,6 +6,8 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1]
+
 ### Added
 
 - **`LogisticRegression`** — a native, core binary classifier with genuine

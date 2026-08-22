@@ -603,7 +603,7 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
         <div>
           <h3>How it fits</h3>
           <ul class="clean">
-            <li><b>pyo3 bindings.</b> A Pythonic pipeline over the Rust core, built as an abi3 wheel by maturin. <span class="mono">numpy</span> / <span class="mono">pandas</span> interop is the next step.</li>
+            <li><b>pyo3 bindings.</b> <code class="inl">pip install millwright</code> — a Pythonic pipeline over the Rust core, shipped as an abi3 wheel. <span class="mono">numpy</span> / <span class="mono">pandas</span> interop is the next step.</li>
             <li><b>ONNX both directions.</b> Consume scikit-learn or PyTorch models (exported to ONNX, run through <span class="mono">tract</span>) as pipeline steps — and export Millwright pipelines to ONNX for any Python serving stack.</li>
             <li><b>One codebase, not a fork.</b> The Python API is a thin binding over the same Rust traits — no duplicated logic, no drift. It lives behind the <code class="inl">python</code> feature.</li>
             <li><b>Notebook-native both ways.</b> Usable from Jupyter (Python) for the data-science mainstream, while the guide's evcxr notebooks stay the Rust reference.</li>
@@ -690,7 +690,7 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
             <tr><td><span class="feat">registry</span></td><td><span class="cr">core · serde</span></td><td>versioned model registry: pipeline + ONNX + metadata + reference distribution</td></tr>
             <tr><td><span class="feat">timeseries</span></td><td><span class="cr">chronos-ts</span></td><td>ARIMA / auto-ARIMA forecasters · stationarity</td></tr>
             <tr><td><span class="feat">incremental</span></td><td><span class="cr">incremental-rs</span></td><td>out-of-core <code class="inl">partial_fit</code> pipelines</td></tr>
-            <tr><td><span class="feat">python</span></td><td><span class="cr">pyo3</span></td><td>Python bindings over the Rust core, built as an abi3 wheel by maturin (numpy / pandas interop planned)</td></tr>
+            <tr><td><span class="feat">python</span></td><td><span class="cr">pyo3</span></td><td><code class="inl">pip install millwright</code> — a Pythonic pipeline over the Rust core (numpy / pandas interop planned)</td></tr>
           </tbody>
         </table>
       </div>

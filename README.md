@@ -92,7 +92,12 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
   (a full round-trip); tree-ensemble ONNX-ML artifacts run in external runtimes
   like onnxruntime.
 - **Python bindings** (`src/python.rs`, via [`pyo3`], feature `python`): a
-  `Pipeline` class over the same Rust core, built with maturin into an abi3 wheel.
+  `Pipeline` class over the same Rust core, shipped on [PyPI](https://pypi.org/project/millwright/)
+  as an abi3 wheel.
+
+```bash
+pip install millwright
+```
 
 ```python
 import millwright as mw
@@ -103,11 +108,7 @@ pipe.fit(rows, labels)          # list[list[float]], list[float]
 preds = pipe.predict(rows)      # runs the Rust engine
 ```
 
-Build the Python module (from a virtualenv):
-
-```bash
-maturin develop --features python
-```
+To build from source (contributors), from a virtualenv: `maturin develop --features python`.
 
 [`regression-diagnostics`]: https://crates.io/crates/regression-diagnostics
 [`shap-rs`]: https://crates.io/crates/shap-rs

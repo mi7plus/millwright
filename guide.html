@@ -200,7 +200,7 @@ millwright = { version = <span class="s">"0.1"</span>, features = [<span class="
             <tr><td><span class="feat">timeseries</span></td><td>AutoArima forecaster</td></tr>
             <tr><td><span class="feat">incremental</span></td><td>IncrementalLinear (partial_fit)</td></tr>
             <tr><td><span class="feat">automl</span></td><td>AutoML search</td></tr>
-            <tr><td><span class="feat">python</span></td><td>the millwright Python package (built by maturin)</td></tr>
+            <tr><td><span class="feat">python</span></td><td>the <code class="inl">pip install millwright</code> package</td></tr>
           </tbody>
         </table>
       </div>
@@ -528,7 +528,7 @@ result.export_onnx(<span class="s">"model.onnx"</span>)?;   <span class="c">// d
       <div class="head col">
         <div class="eyebrow">Step 14 · interop</div>
         <h2>Python — the same engine, a Pythonic API.</h2>
-        <p class="muted">The <code class="inl">python</code> feature is a Pythonic API over the same Rust engine, built with maturin into an abi3 wheel.</p>
+        <p class="muted"><code class="inl">pip install millwright</code> — a Pythonic API over the same Rust engine, shipped as an abi3 wheel built with maturin.</p>
       </div>
 <pre><span class="k">import</span> millwright <span class="k">as</span> mw
 
@@ -538,7 +538,7 @@ pipe.random_forest(n_trees=<span class="k">100</span>, max_depth=<span class="k"
 
 pipe.fit(rows, labels)          <span class="c"># list[list[float]], list[float]</span>
 preds = pipe.predict(rows)      <span class="c"># runs the Rust engine</span></pre>
-      <p class="run">maturin develop --features python</p>
+      <p class="run">pip install millwright</p>
       <p class="tiny"><code class="inl">python</code> is deliberately not part of <code class="inl">full</code>: pyo3's <code class="inl">extension-module</code> defers libpython symbols, so a plain <code class="inl">cargo test</code> can't link it. It is built and tested the way it ships — as a wheel.</p>
     </div>
   </section>
