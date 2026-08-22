@@ -1,10 +1,18 @@
 # millwright
 
+[![crates.io](https://img.shields.io/crates/v/millwright.svg)](https://crates.io/crates/millwright)
+[![docs.rs](https://img.shields.io/docsrs/millwright)](https://docs.rs/millwright)
+[![PyPI](https://img.shields.io/pypi/v/millwright.svg)](https://pypi.org/project/millwright/)
+[![CI](https://github.com/mi7plus/millwright/actions/workflows/ci.yml/badge.svg)](https://github.com/mi7plus/millwright/actions/workflows/ci.yml)
+[![downloads](https://img.shields.io/crates/d/millwright.svg)](https://crates.io/crates/millwright)
+[![license](https://img.shields.io/crates/l/millwright.svg)](LICENSE)
+
 A unified ML framework for Rust — *ten crates, one lifecycle.*
 
-- **Tutorial:** [`GUIDE.md`](GUIDE.md) — the hands-on walk through the whole
-  lifecycle (also as a multi-page docs site under [`docs/`](docs/index.html),
-  hosted at <https://millwright-rs.dev/docs/>).
+- **Tutorial:** the hands-on docs site at <https://millwright-rs.dev/docs/>
+  (source in [`docs/`](docs/index.html); a short [`GUIDE.md`](GUIDE.md) has the
+  quickstart).
+- **Contributing:** see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - **Design brief:** the *why*, at **<https://millwright-rs.dev/>**.
 
 > *"Ten crates"* is the ecosystem this project assembles —
