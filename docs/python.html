@@ -35,16 +35,57 @@
 <pre>pip install millwright</pre>
 <pre><span class="k">import</span> millwright <span class="k">as</span> mw
 
-pipe = mw.<span class="f">Pipeline</span>()
-pipe.simple_imputer(strategy=<span class="s">"median"</span>)
-pipe.standard_scaler()
-pipe.random_forest(n_trees=<span class="k">100</span>, max_depth=<span class="k">8</span>)   <span class="c"># or .linear_regression()</span>
+train = mw.Frame.from_pandas(df)             <span class="c"># or from_numpy / from_rows</span>
 
-pipe.fit(rows, labels)          <span class="c"># list[list[float]], list[float]</span>
-preds = pipe.predict(rows)      <span class="c"># runs the Rust engine</span>
-metrics = pipe.evaluate(rows, labels)   <span class="c"># -&gt; {"accuracy": …, "f1": …}</span></pre>
-      <div class="callout"><b>Roadmap.</b> The API today is list-based; direct <code class="inl">numpy</code> / <code class="inl">pandas</code> interop (and a wider surface — search, more models) is the next step.</div>
-      <p class="tiny"><code class="inl">python</code> is deliberately not part of <code class="inl">full</code>: pyo3's <code class="inl">extension-module</code> defers libpython symbols, so a plain <code class="inl">cargo test</code> can't link it. It is built and tested the way it ships — as a wheel. To build from source, from a virtualenv: <code class="inl">maturin develop --features python</code>.</p>
+pipe = (mw.<span class="f">Pipeline</span>()
+    .step(<span class="s">"impute"</span>, mw.SimpleImputer.median())
+    .step(<span class="s">"scale"</span>,  mw.StandardScaler())
+    .estimator(<span class="s">"rf"</span>, mw.RandomForest(n_trees=<span class="k">200</span>, max_depth=<span class="k">8</span>)))
+
+pipe.fit(train, y_train)
+preds   = pipe.predict(test)
+metrics = pipe.evaluate(test, y_test)        <span class="c"># -&gt; {"accuracy": …, "f1": …}</span></pre>
+      <p>The transformer / estimator objects (<code class="inl">StandardScaler</code>, <code class="inl">MinMaxScaler</code>, <code class="inl">SimpleImputer</code>, <code class="inl">OneHotEncoder</code>, <code class="inl">RandomForest</code>, <code class="inl">LinearRegression</code>) are the same engines as Rust. The older builder form — <code class="inl">pipe.standard_scaler()</code>, <code class="inl">pipe.random_forest()</code> — still works.</p>
+    </div>
+  </section>
+
+  <section id="ingest">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Ingest &amp; EDA</div>
+        <h2>numpy, pandas, or a typed table.</h2>
+      </div>
+<pre><span class="c"># a Frame reads arrays and DataFrames directly</span>
+train = mw.Frame.from_numpy(X)               <span class="c"># or from_pandas(df) / from_rows(rows)</span>
+
+<span class="c"># or the dtype-aware Table (strings, dates, nulls) + automated EDA</span>
+data = mw.Table.from_csv(<span class="s">"churn.csv"</span>)
+mw.Profile.of_with_target(data, <span class="s">"churned"</span>).to_html(<span class="s">"eda.html"</span>)
+train = data.to_frame()</pre>
+    </div>
+  </section>
+
+  <section id="tune">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">Tune, explain, export</div>
+        <h2>The whole lifecycle.</h2>
+      </div>
+<pre><span class="c"># grid search + stratified CV over the pipeline</span>
+best = (mw.GridSearch(pipe, {<span class="s">"rf__max_depth"</span>: [<span class="k">4</span>, <span class="k">8</span>, <span class="k">16</span>]})
+    .cv(mw.StratifiedKFold(<span class="k">5</span>)).scoring(<span class="s">"f1"</span>)
+    .fit(train, y_train))
+best.best_score; best.best_params()
+
+<span class="c"># SHAP importance, and one portable ONNX artifact</span>
+pipe.fit(train, y_train)
+pipe.explain(test)                           <span class="c"># [(feature, mean|shap|), …]</span>
+pipe.export_onnx(<span class="s">"churn.onnx"</span>)
+
+<span class="c"># consume an external sklearn / PyTorch model (exported to ONNX) as a step</span>
+ext = mw.<span class="f">Pipeline</span>().estimator(<span class="s">"onnx"</span>, mw.OnnxModel(<span class="s">"model.onnx"</span>))</pre>
+      <div class="callout"><b>Note.</b> ONNX export folds affine preprocessing (scalers) into the graph; a non-affine step (impute, one-hot) raises, naming the step. Fit / predict / evaluate / explain work with any steps.</div>
+      <p class="tiny"><code class="inl">python</code> is deliberately not part of <code class="inl">full</code>: pyo3's <code class="inl">extension-module</code> defers libpython symbols, so a plain <code class="inl">cargo test</code> can't link it. It is built and tested the way it ships — as a wheel. To build from source, from a virtualenv: <code class="inl">maturin develop --features python</code>. The wheel bundles the EDA (polars), model-selection, explain, and ONNX engines.</p>
     </div>
   </section>
 
