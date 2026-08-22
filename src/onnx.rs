@@ -320,7 +320,10 @@ mod tests {
         let probe = Frame::from_rows(vec![vec![20.0, 1.0]], cols).unwrap();
 
         let via_pipe = pipe.predict(&probe).unwrap();
-        let direct = InferenceModel::load(&path).unwrap().predict(&probe).unwrap();
+        let direct = InferenceModel::load(&path)
+            .unwrap()
+            .predict(&probe)
+            .unwrap();
         assert!((via_pipe[0] - direct[0]).abs() < 1e-4);
         let _ = std::fs::remove_file(&path);
     }
