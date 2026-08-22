@@ -144,6 +144,7 @@
       <a href="#pipeline">pipelines</a>
       <a href="#operate">operate</a>
       <a href="#reproducible">reproducible</a>
+      <a class="repo" href="https://crates.io/crates/millwright">crates.io ↗</a>
       <a class="repo" href="https://github.com/mi7plus/millwright">GitHub ↗</a>
     </nav>
   </div>
@@ -199,7 +200,7 @@ millwright = { version = <span class="s">"0.1"</span>, features = [<span class="
             <tr><td><span class="feat">timeseries</span></td><td>AutoArima forecaster</td></tr>
             <tr><td><span class="feat">incremental</span></td><td>IncrementalLinear (partial_fit)</td></tr>
             <tr><td><span class="feat">automl</span></td><td>AutoML search</td></tr>
-            <tr><td><span class="feat">python</span></td><td>the <code class="inl">pip install millwright</code> package</td></tr>
+            <tr><td><span class="feat">python</span></td><td>the millwright Python package (built by maturin)</td></tr>
           </tbody>
         </table>
       </div>
@@ -527,7 +528,7 @@ result.export_onnx(<span class="s">"model.onnx"</span>)?;   <span class="c">// d
       <div class="head col">
         <div class="eyebrow">Step 14 · interop</div>
         <h2>Python — the same engine, a Pythonic API.</h2>
-        <p class="muted">The <code class="inl">python</code> feature ships a <code class="inl">pip install millwright</code> package: the same Rust engine behind a Pythonic API, built with maturin into an abi3 wheel.</p>
+        <p class="muted">The <code class="inl">python</code> feature is a Pythonic API over the same Rust engine, built with maturin into an abi3 wheel.</p>
       </div>
 <pre><span class="k">import</span> millwright <span class="k">as</span> mw
 
@@ -554,7 +555,7 @@ preds = pipe.predict(rows)      <span class="c"># runs the Rust engine</span></p
         <li><b>Exact-version pins.</b> Every engine — the ecosystem crates plus the smartcore and linfa families — is pinned to an exact <code class="inl">=x.y.z</code>. A stray <code class="inl">cargo update</code> can never silently move a fragile engine under the stable trait contract. General infrastructure (serde, tokio, axum) stays on caret ranges to avoid forcing conflicts downstream.</li>
         <li><b>Committed <code class="inl">Cargo.lock</code>.</b> The whole ~300-package graph is reproducible; CI builds with <code class="inl">--locked</code>, so a drifted lockfile is a hard error.</li>
         <li><b>Golden-output tests.</b> <code class="inl">tests/golden.rs</code> locks the numeric behaviour of the engines on fixed inputs — exact for the deterministic paths, well-separated class labels for the stochastic ones. An engine bump that moves a number shows up as a diff.</li>
-        <li><b>Feature-matrix CI.</b> <code class="inl">fmt</code>, <code class="inl">clippy -D warnings</code>, docs, an MSRV build, and the tests across the whole matrix — from <code class="inl">--no-default-features</code> through each feature to <code class="inl">full</code>, plus Windows/macOS and a maturin wheel.</li>
+        <li><b>Feature-matrix CI.</b> <code class="inl">fmt</code>, <code class="inl">clippy -D warnings</code>, docs, and the tests across the whole matrix — from <code class="inl">--no-default-features</code> through each feature to <code class="inl">full</code> — plus Windows/macOS, the runnable examples, a benchmark compile-check, a <code class="inl">cargo publish --dry-run</code>, and a maturin wheel. The MSRV (<code class="inl">rust-version</code>) is enforced by cargo for consumers.</li>
       </ul>
 <pre><span class="c"># run the whole suite yourself</span>
 cargo test --features full
@@ -567,7 +568,7 @@ cargo test --locked --no-default-features --features smartcore-backend</pre>
 <footer>
   <div class="wrap">
     <span class="mono">⚙ millwright — the guide</span>
-    <span class="mono"><a href="index.html">design brief</a> · <a href="https://github.com/mi7plus/millwright">GitHub</a></span>
+    <span class="mono"><a href="index.html">design brief</a> · <a href="https://crates.io/crates/millwright">crates.io</a> · <a href="https://docs.rs/millwright">docs.rs</a> · <a href="https://github.com/mi7plus/millwright">GitHub</a></span>
   </div>
 </footer>
 </body></html>

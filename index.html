@@ -224,6 +224,7 @@
       <a href="#python">python</a>
       <a href="#features">features</a>
       <a href="guide.html" class="guidelink">guide</a>
+      <a href="https://crates.io/crates/millwright" class="repo">crates.io ↗</a>
       <a href="https://github.com/mi7plus/millwright" class="repo">GitHub ↗</a>
     </nav>
   </div>
@@ -245,6 +246,7 @@
       </div>
       <div class="cta">
         <a class="btn primary" href="guide.html">Read the guide →</a>
+        <a class="btn" href="https://crates.io/crates/millwright">crates.io</a>
         <a class="btn" href="https://github.com/mi7plus/millwright">GitHub</a>
         <code>cargo add millwright</code>
       </div>
@@ -370,7 +372,7 @@ grid! {
       <pre><span class="k">use</span> millwright::prelude::*;
 
 <span class="c">// 0 — look before you leap: one call profiles the whole frame to HTML</span>
-<span class="f">Profile</span>::of(&amp;train)?.to_html(<span class="s">"eda_report.html"</span>)?;   <span class="c">// plotters-statistical + polars</span>
+<span class="f">Profile</span>::of(&amp;train)?.to_html(<span class="s">"eda_report.html"</span>)?;   <span class="c">// polars-backed EDA</span>
 
 <span class="c">// 1 — compose a pipeline: preprocessing + a model, one object</span>
 <span class="k">let</span> pipe = <span class="f">Pipeline</span>::new()
@@ -601,7 +603,7 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
         <div>
           <h3>How it fits</h3>
           <ul class="clean">
-            <li><b>pyo3 + numpy bindings.</b> <code class="inl">pip install millwright</code>; the <code class="inl">Frame</code> maps to numpy / pandas / polars, zero-copy where the layout already agrees.</li>
+            <li><b>pyo3 bindings.</b> A Pythonic pipeline over the Rust core, built as an abi3 wheel by maturin. <span class="mono">numpy</span> / <span class="mono">pandas</span> interop is the next step.</li>
             <li><b>ONNX both directions.</b> Consume scikit-learn or PyTorch models (exported to ONNX, run through <span class="mono">tract</span>) as pipeline steps — and export Millwright pipelines to ONNX for any Python serving stack.</li>
             <li><b>One codebase, not a fork.</b> The Python API is a thin binding over the same Rust traits — no duplicated logic, no drift. It lives behind the <code class="inl">python</code> feature.</li>
             <li><b>Notebook-native both ways.</b> Usable from Jupyter (Python) for the data-science mainstream, while the guide's evcxr notebooks stay the Rust reference.</li>
@@ -673,14 +675,14 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
             <tr class="core"><td><span class="feat">preprocessing</span><span class="badge">default</span></td><td><span class="cr">imbalance-rs</span></td><td>impute · scale · encode · SMOTE transformers</td></tr>
             <tr class="core"><td><span class="feat">model-selection</span><span class="badge">default</span></td><td><span class="cr">model-selection-rs</span></td><td>stratified/group/time CV · grid · random</td></tr>
             <tr class="core"><td><span class="feat">ensemble</span><span class="badge">default</span></td><td><span class="cr">core</span></td><td>voting · stacking · bagging meta-estimators — compose any Predictors, across backends</td></tr>
-            <tr><td><span class="feat">eda</span></td><td><span class="cr">plotters-statistical · polars</span></td><td>automated <code class="inl">Profile</code> report: stats · distributions · missingness · correlation · outliers</td></tr>
+            <tr><td><span class="feat">eda</span></td><td><span class="cr">polars</span></td><td>dtype-aware <code class="inl">Table</code> + automated <code class="inl">Profile</code> report: stats · missingness · correlation · outliers</td></tr>
             <tr><td><span class="feat">linfa-backend</span></td><td><span class="cr">linfa</span></td><td>k-means · DBSCAN · GMM · PCA (via boundary conversion)</td></tr>
             <tr><td><span class="feat">hpo</span></td><td><span class="cr">hyperopt-rs · tpe</span></td><td>Bayesian / TPE hyperparameter search</td></tr>
             <tr><td><span class="feat">automl</span></td><td><span class="cr">hyperopt-rs · model-selection-rs</span></td><td>automated preprocessing + model + HPO search with an auto-ensembled, deployable winner</td></tr>
             <tr><td><span class="feat">diagnostics</span></td><td><span class="cr">regression-diagnostics</span></td><td>VIF · residual tests · influence · summary()</td></tr>
             <tr><td><span class="feat">explain</span></td><td><span class="cr">shap-rs</span></td><td>SHAP values · permutation importance</td></tr>
-            <tr><td><span class="feat">calibration</span></td><td><span class="cr">core · plotters-statistical</span></td><td>probability calibration (Platt · isotonic) + reliability diagrams</td></tr>
-            <tr><td><span class="feat">anomaly</span></td><td><span class="cr">core · ndarray</span></td><td>outlier detection: Mahalanobis · kNN score (Isolation Forest as the ecosystem matures)</td></tr>
+            <tr><td><span class="feat">calibration</span></td><td><span class="cr">core</span></td><td>probability calibration (Platt · isotonic) · reliability curves · <code class="inl">CalibratedClassifier</code></td></tr>
+            <tr><td><span class="feat">anomaly</span></td><td><span class="cr">core</span></td><td>outlier detection: Mahalanobis · kNN score (Isolation Forest as the ecosystem matures)</td></tr>
             <tr><td><span class="feat">viz</span></td><td><span class="cr">plotters-statistical</span></td><td>ROC · calibration · residual · learning-curve charts</td></tr>
             <tr><td><span class="feat">onnx</span></td><td><span class="cr">onnx-export-rs · tract</span></td><td>export trained pipelines · load &amp; run ONNX</td></tr>
             <tr><td><span class="feat">serve</span></td><td><span class="cr">axum · tokio</span></td><td>HTTP inference server + input validation</td></tr>
@@ -688,11 +690,11 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
             <tr><td><span class="feat">registry</span></td><td><span class="cr">core · serde</span></td><td>versioned model registry: pipeline + ONNX + metadata + reference distribution</td></tr>
             <tr><td><span class="feat">timeseries</span></td><td><span class="cr">chronos-ts</span></td><td>ARIMA / auto-ARIMA forecasters · stationarity</td></tr>
             <tr><td><span class="feat">incremental</span></td><td><span class="cr">incremental-rs</span></td><td>out-of-core <code class="inl">partial_fit</code> pipelines</td></tr>
-            <tr><td><span class="feat">python</span></td><td><span class="cr">pyo3 · numpy</span></td><td>Python package (<code class="inl">pip install millwright</code>): pandas / numpy / polars interop, Jupyter-ready</td></tr>
+            <tr><td><span class="feat">python</span></td><td><span class="cr">pyo3</span></td><td>Python bindings over the Rust core, built as an abi3 wheel by maturin (numpy / pandas interop planned)</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="tiny" style="margin-top:.9rem"><span class="mono">full = [</span>every feature above<span class="mono">]</span> · <span class="mono">default = ["smartcore-backend", "preprocessing", "model-selection"]</span></p>
+      <p class="tiny" style="margin-top:.9rem"><span class="mono">full = [</span>every feature above<span class="mono">]</span> · <span class="mono">default = ["smartcore-backend", "preprocessing", "model-selection", "ensemble"]</span></p>
     </div>
   </section>
 
@@ -730,7 +732,7 @@ model.export_onnx(<span class="s">"churn.onnx"</span>)             <span class="
 <footer>
   <div class="wrap">
     <span class="mono">⚙ millwright — proven Rust crates, assembled into one machine</span>
-    <span class="mono"><a href="guide.html">guide</a> · <a href="https://github.com/mi7plus/millwright">github.com/mi7plus/millwright</a></span>
+    <span class="mono"><a href="guide.html">guide</a> · <a href="https://crates.io/crates/millwright">crates.io</a> · <a href="https://docs.rs/millwright">docs.rs</a> · <a href="https://github.com/mi7plus/millwright">github</a></span>
   </div>
 </footer>
 </body></html>
