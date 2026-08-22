@@ -16,11 +16,14 @@ the same source.
 
 ## Rust crate → crates.io
 
-Requires a crates.io API token once (`cargo login <token>`), then:
+Automated by the **`release-crate.yml`** workflow, which publishes on a `v*`
+tag. One-time setup: add your crates.io API token as a repository secret named
+**`CARGO_REGISTRY_TOKEN`**. Then a tag (below) publishes it; a manual run
+(Actions → release-crate → Run workflow) does a `--dry-run` instead. The
+workflow also fails fast if the tag doesn't match `Cargo.toml`'s version.
 
-```bash
-cargo publish --locked
-```
+To publish by hand instead: `cargo login <token>` once, then
+`cargo publish --locked`.
 
 docs.rs builds the documentation automatically with the `full` feature set (see
 `[package.metadata.docs.rs]` in `Cargo.toml`); the `python` feature is excluded
