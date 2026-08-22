@@ -6,6 +6,17 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Python: a scikit-learn-shaped object API.** `mw.Frame` with `from_pandas` /
+  `from_numpy` / `from_rows` ingest; composable transformer/estimator objects
+  (`StandardScaler`, `MinMaxScaler`, `SimpleImputer`, `OneHotEncoder`,
+  `RandomForest`, `LinearRegression`) added via `pipe.step(name, obj)` /
+  `pipe.estimator(name, obj)`; `fit`/`predict`/`evaluate` accept a `Frame`.
+- **Python: `pipeline.explain(...)`** returns SHAP feature importance
+  (`Explainer.kernel()` configurable), and **`pipeline.export_onnx(path)`**
+  writes the fitted pipeline to a single ONNX file. The `python` wheel now
+  bundles the `model-selection`, `explain`, and `onnx` engines.
+
 ## [0.1.1]
 
 ### Added

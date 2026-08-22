@@ -1,21 +1,31 @@
-//! Python bindings (`pip install millwright`) — the first pyo3 layer over the
-//! now-stable Rust core.
+//! Python bindings (`pip install millwright`) — a pyo3 layer over the stable
+//! Rust core.
 //!
-//! A thin binding, not a fork: `Pipeline` wraps the same Rust
-//! [`Pipeline`](crate::pipeline::Pipeline), so Python runs the Rust engine at
-//! Rust speed. This first cut speaks plain Python lists (rows of floats);
-//! numpy / pandas / polars zero-copy interop layers on next.
+//! A thin binding, not a fork: everything wraps the same Rust types, so Python
+//! runs the Rust engine at Rust speed. The API mirrors the Rust one — a
+//! [`Frame`](crate::frame::Frame) of data, composable transformer / estimator
+//! objects, and a [`Pipeline`](crate::pipeline::Pipeline) that fits and ships.
 //!
 //! ```python
 //! import millwright as mw
+//!
+//! train = mw.Frame.from_pandas(df)          # or from_numpy / from_rows
+//!
 //! pipe = mw.Pipeline()
-//! pipe.simple_imputer(strategy="median")
-//! pipe.standard_scaler()
-//! pipe.random_forest(n_trees=100, max_depth=8)   # or .linear_regression()
-//! pipe.fit(rows, labels)          # rows: list[list[float]], labels: list[float]
-//! preds = pipe.predict(rows)      # -> list[float]
-//! metrics = pipe.evaluate(rows, labels)   # -> {"accuracy": ..., "f1": ...}
+//! pipe.step("impute", mw.SimpleImputer.median())
+//! pipe.step("scale",  mw.StandardScaler())
+//! pipe.estimator("rf", mw.RandomForest(n_trees=200, max_depth=8))
+//!
+//! pipe.fit(train, labels)
+//! preds   = pipe.predict(test)
+//! metrics = pipe.evaluate(test, labels)     # {"accuracy": ..., "f1": ...}
+//!
+//! pipe.export_onnx("model.onnx")            # one portable artifact  (feature: onnx)
+//! importance = pipe.explain(test)           # SHAP feature ranking   (feature: explain)
 //! ```
+//!
+//! The old convenience builders (`pipe.standard_scaler()`, `pipe.random_forest()`,
+//! …) still work; the object API above is the fuller, scikit-learn-shaped one.
 
 use std::collections::HashMap;
 
@@ -44,6 +54,290 @@ fn frame_from_rows(rows: Vec<Vec<f64>>) -> PyResult<Frame> {
     Frame::from_rows(rows, default_columns(ncols)).map_err(to_py_err)
 }
 
+/// Coerce a Python argument that is either a [`PyFrame`] or plain rows-of-floats
+/// into a Rust [`Frame`].
+fn frame_arg(data: &Bound<'_, PyAny>) -> PyResult<Frame> {
+    if let Ok(f) = data.extract::<PyFrame>() {
+        return Ok(f.inner);
+    }
+    let rows: Vec<Vec<f64>> = data.extract().map_err(|_| {
+        PyValueError::new_err("expected a millwright.Frame or a list[list[float]] of rows")
+    })?;
+    frame_from_rows(rows)
+}
+
+// ---------------------------------------------------------------------------
+// Frame — the data matrix, with DataFrame / array ingest.
+// ---------------------------------------------------------------------------
+
+/// A dense matrix of features with named columns — the data every step speaks.
+#[pyclass(name = "Frame")]
+#[derive(Clone)]
+pub struct PyFrame {
+    inner: Frame,
+}
+
+#[pymethods]
+impl PyFrame {
+    /// Build from rows of floats, optionally naming the columns.
+    #[staticmethod]
+    #[pyo3(signature = (rows, columns=None))]
+    fn from_rows(rows: Vec<Vec<f64>>, columns: Option<Vec<String>>) -> PyResult<Self> {
+        let ncols = rows.first().map(|r| r.len()).unwrap_or(0);
+        let cols = columns.unwrap_or_else(|| default_columns(ncols));
+        Ok(Self {
+            inner: Frame::from_rows(rows, cols).map_err(to_py_err)?,
+        })
+    }
+
+    /// Build from a numpy array (anything with a 2-D `.tolist()`).
+    #[staticmethod]
+    fn from_numpy(array: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let rows: Vec<Vec<f64>> = array.call_method0("tolist")?.extract()?;
+        Self::from_rows(rows, None)
+    }
+
+    /// Build from a pandas DataFrame — takes its column names and numeric values.
+    #[staticmethod]
+    fn from_pandas(df: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let columns: Vec<String> = df.getattr("columns")?.call_method0("tolist")?.extract()?;
+        let rows: Vec<Vec<f64>> = df
+            .call_method0("to_numpy")?
+            .call_method0("tolist")?
+            .extract()?;
+        Self::from_rows(rows, Some(columns))
+    }
+
+    /// The column names, in order.
+    fn columns(&self) -> Vec<String> {
+        self.inner.columns().to_vec()
+    }
+
+    /// `(rows, columns)`.
+    #[getter]
+    fn shape(&self) -> (usize, usize) {
+        self.inner.shape()
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.nrows()
+    }
+
+    fn __repr__(&self) -> String {
+        let (r, c) = self.inner.shape();
+        format!("Frame({r} rows x {c} cols)")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Transformer & estimator objects.
+//
+// Each is a lightweight descriptor the pipeline lowers to the concrete Rust
+// type when it is added as a step. `extract` clones the descriptor out of the
+// Python object, so every class derives `Clone`.
+// ---------------------------------------------------------------------------
+
+/// Standardize each column to zero mean and unit variance.
+#[pyclass(name = "StandardScaler")]
+#[derive(Clone)]
+struct PyStandardScaler;
+#[pymethods]
+impl PyStandardScaler {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+}
+
+/// Scale each column into `[0, 1]`.
+#[pyclass(name = "MinMaxScaler")]
+#[derive(Clone)]
+struct PyMinMaxScaler;
+#[pymethods]
+impl PyMinMaxScaler {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+}
+
+/// Fill missing values with a per-column statistic (`"median"` or `"mean"`).
+#[pyclass(name = "SimpleImputer")]
+#[derive(Clone)]
+struct PySimpleImputer {
+    strategy: String,
+}
+#[pymethods]
+impl PySimpleImputer {
+    #[new]
+    #[pyo3(signature = (strategy=None))]
+    fn new(strategy: Option<String>) -> Self {
+        Self {
+            strategy: strategy.unwrap_or_else(|| "median".into()),
+        }
+    }
+    #[staticmethod]
+    fn median() -> Self {
+        Self {
+            strategy: "median".into(),
+        }
+    }
+    #[staticmethod]
+    fn mean() -> Self {
+        Self {
+            strategy: "mean".into(),
+        }
+    }
+}
+
+/// One-hot encode inferred low-cardinality integer columns.
+#[pyclass(name = "OneHotEncoder")]
+#[derive(Clone)]
+struct PyOneHotEncoder;
+#[pymethods]
+impl PyOneHotEncoder {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+}
+
+/// A random-forest estimator.
+#[pyclass(name = "RandomForest")]
+#[derive(Clone)]
+struct PyRandomForest {
+    n_trees: u16,
+    max_depth: Option<u16>,
+}
+#[pymethods]
+impl PyRandomForest {
+    #[new]
+    #[pyo3(signature = (n_trees=100, max_depth=None))]
+    fn new(n_trees: u16, max_depth: Option<u16>) -> Self {
+        Self { n_trees, max_depth }
+    }
+}
+
+/// An ordinary-least-squares regressor.
+#[pyclass(name = "LinearRegression")]
+#[derive(Clone)]
+struct PyLinearRegression;
+#[pymethods]
+impl PyLinearRegression {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+}
+
+/// Lower a Python transformer object onto the pipeline as a named step.
+fn add_transformer(
+    pipe: CorePipeline,
+    name: String,
+    obj: &Bound<'_, PyAny>,
+) -> PyResult<CorePipeline> {
+    if obj.extract::<PyStandardScaler>().is_ok() {
+        return Ok(pipe.step(name, StandardScaler::new()));
+    }
+    if obj.extract::<PyMinMaxScaler>().is_ok() {
+        return Ok(pipe.step(name, MinMaxScaler::new()));
+    }
+    if let Ok(s) = obj.extract::<PySimpleImputer>() {
+        let imputer = match s.strategy.as_str() {
+            "median" => SimpleImputer::median(),
+            "mean" => SimpleImputer::mean(),
+            other => return Err(PyValueError::new_err(format!("unknown strategy '{other}'"))),
+        };
+        return Ok(pipe.step(name, imputer));
+    }
+    if obj.extract::<PyOneHotEncoder>().is_ok() {
+        return Ok(pipe.step(name, OneHotEncoder::infer()));
+    }
+    Err(PyValueError::new_err(
+        "step expects a transformer object \
+         (StandardScaler, MinMaxScaler, SimpleImputer, OneHotEncoder)",
+    ))
+}
+
+/// Lower a Python estimator object onto the pipeline as the final step.
+fn set_estimator(
+    pipe: CorePipeline,
+    name: String,
+    obj: &Bound<'_, PyAny>,
+) -> PyResult<CorePipeline> {
+    if let Ok(rf) = obj.extract::<PyRandomForest>() {
+        let mut model = RandomForest::new().n_trees(rf.n_trees);
+        if let Some(d) = rf.max_depth {
+            model = model.max_depth(d);
+        }
+        return Ok(pipe.estimator(name, model));
+    }
+    if obj.extract::<PyLinearRegression>().is_ok() {
+        return Ok(pipe.estimator(name, LinearRegression::new()));
+    }
+    Err(PyValueError::new_err(
+        "estimator expects an estimator object (RandomForest, LinearRegression)",
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Explainer (feature: explain).
+// ---------------------------------------------------------------------------
+
+/// A SHAP explainer configuration.
+#[cfg(feature = "explain")]
+#[pyclass(name = "Explainer")]
+#[derive(Clone)]
+struct PyExplainer {
+    nsamples: Option<usize>,
+    background: Option<usize>,
+}
+
+#[cfg(feature = "explain")]
+#[pymethods]
+impl PyExplainer {
+    /// Kernel SHAP with the library defaults.
+    #[staticmethod]
+    fn kernel() -> Self {
+        Self {
+            nsamples: None,
+            background: None,
+        }
+    }
+    /// Number of SHAP coalition samples per row.
+    fn nsamples(&self, n: usize) -> Self {
+        Self {
+            nsamples: Some(n),
+            background: self.background,
+        }
+    }
+    /// Number of background rows used as the reference.
+    fn background(&self, n: usize) -> Self {
+        Self {
+            nsamples: self.nsamples,
+            background: Some(n),
+        }
+    }
+}
+
+#[cfg(feature = "explain")]
+impl PyExplainer {
+    fn to_inner(&self) -> crate::explain::Explainer {
+        let mut e = crate::explain::Explainer::kernel();
+        if let Some(n) = self.nsamples {
+            e = e.nsamples(n);
+        }
+        if let Some(b) = self.background {
+            e = e.background(b);
+        }
+        e
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline.
+// ---------------------------------------------------------------------------
+
 /// A preprocessing-plus-model pipeline, driven from Python.
 ///
 /// `unsendable`: the wrapped Rust pipeline holds non-`Sync` trait objects, so
@@ -64,14 +358,27 @@ impl PyPipeline {
         }
     }
 
+    /// Add a named transformer step from a transformer object.
+    fn step(&mut self, name: String, transformer: &Bound<'_, PyAny>) -> PyResult<()> {
+        let pipe = std::mem::take(&mut self.inner);
+        self.inner = add_transformer(pipe, name, transformer)?;
+        Ok(())
+    }
+
+    /// Set the final estimator from an estimator object.
+    fn estimator(&mut self, name: String, estimator: &Bound<'_, PyAny>) -> PyResult<()> {
+        let pipe = std::mem::take(&mut self.inner);
+        self.inner = set_estimator(pipe, name, estimator)?;
+        Ok(())
+    }
+
+    // ---- convenience builders (kept for back-compat) --------------------
+
     /// Add a standard-scaler preprocessing step.
     #[pyo3(signature = (name=None))]
     fn standard_scaler(&mut self, name: Option<String>) {
         let pipe = std::mem::take(&mut self.inner);
-        self.inner = pipe.step(
-            name.unwrap_or_else(|| "scale".into()),
-            StandardScaler::new(),
-        );
+        self.inner = pipe.step(name.unwrap_or_else(|| "scale".into()), StandardScaler::new());
     }
 
     /// Add a min-max scaler preprocessing step.
@@ -98,10 +405,7 @@ impl PyPipeline {
     #[pyo3(signature = (name=None))]
     fn one_hot(&mut self, name: Option<String>) {
         let pipe = std::mem::take(&mut self.inner);
-        self.inner = pipe.step(
-            name.unwrap_or_else(|| "encode".into()),
-            OneHotEncoder::infer(),
-        );
+        self.inner = pipe.step(name.unwrap_or_else(|| "encode".into()), OneHotEncoder::infer());
     }
 
     /// Set a random-forest estimator as the final step.
@@ -122,9 +426,11 @@ impl PyPipeline {
         self.inner = pipe.estimator(name.unwrap_or_else(|| "lr".into()), LinearRegression::new());
     }
 
-    /// Fit the pipeline on rows of features and a target vector.
-    fn fit(&mut self, rows: Vec<Vec<f64>>, labels: Vec<f64>) -> PyResult<()> {
-        let frame = frame_from_rows(rows)?;
+    // ---- fit / predict / evaluate ---------------------------------------
+
+    /// Fit the pipeline on a `Frame` (or rows of floats) and a target vector.
+    fn fit(&mut self, data: &Bound<'_, PyAny>, labels: Vec<f64>) -> PyResult<()> {
+        let frame = frame_arg(data)?;
         let dataset = Dataset::new(frame, labels).map_err(to_py_err)?;
         self.inner.fit(&dataset).map_err(to_py_err)?;
         self.fitted = true;
@@ -132,22 +438,26 @@ impl PyPipeline {
     }
 
     /// Predict one value per input row.
-    fn predict(&self, rows: Vec<Vec<f64>>) -> PyResult<Vec<f64>> {
+    fn predict(&self, data: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
         if !self.fitted {
             return Err(PyValueError::new_err("pipeline is not fitted"));
         }
-        let frame = frame_from_rows(rows)?;
+        let frame = frame_arg(data)?;
         self.inner.predict(&frame).map_err(to_py_err)
     }
 
-    /// Predict on `rows` and score against `labels`, returning a metrics dict
+    /// Predict on `data` and score against `labels`, returning a metrics dict
     /// (accuracy/precision/recall/f1 for classification, mae/mse/rmse/r2 for
     /// regression — the task is inferred from the labels).
-    fn evaluate(&self, rows: Vec<Vec<f64>>, labels: Vec<f64>) -> PyResult<HashMap<String, f64>> {
+    fn evaluate(
+        &self,
+        data: &Bound<'_, PyAny>,
+        labels: Vec<f64>,
+    ) -> PyResult<HashMap<String, f64>> {
         if !self.fitted {
             return Err(PyValueError::new_err("pipeline is not fitted"));
         }
-        let frame = frame_from_rows(rows)?;
+        let frame = frame_arg(data)?;
         let preds = self.inner.predict(&frame).map_err(to_py_err)?;
         let report = Report::new(&labels, &preds);
         Ok(report.metrics().iter().cloned().collect())
@@ -161,6 +471,41 @@ impl PyPipeline {
             .map(String::from)
             .collect()
     }
+
+    // ---- explain / export (feature-gated) -------------------------------
+
+    /// SHAP feature importance for the fitted pipeline: `[(column, mean|shap|)]`,
+    /// most important first. Pass an `Explainer` to tune it. (feature: explain)
+    #[cfg(feature = "explain")]
+    #[pyo3(signature = (data, explainer=None))]
+    fn explain(
+        &self,
+        data: &Bound<'_, PyAny>,
+        explainer: Option<PyRef<'_, PyExplainer>>,
+    ) -> PyResult<Vec<(String, f64)>> {
+        use crate::explain::Explain;
+        if !self.fitted {
+            return Err(PyValueError::new_err("pipeline is not fitted"));
+        }
+        let frame = frame_arg(data)?;
+        let ex = explainer
+            .map(|e| e.to_inner())
+            .unwrap_or_else(crate::explain::Explainer::kernel);
+        let explanation = self.inner.explain(&ex, &frame).map_err(to_py_err)?;
+        Ok(explanation.importance())
+    }
+
+    /// Export the whole fitted pipeline to a single ONNX file. Affine steps
+    /// (scalers) fold into the estimator's graph; a non-affine step (impute,
+    /// one-hot) raises, naming the step. (feature: onnx)
+    #[cfg(feature = "onnx")]
+    fn export_onnx(&self, path: String) -> PyResult<()> {
+        use crate::onnx::ExportOnnx;
+        if !self.fitted {
+            return Err(PyValueError::new_err("pipeline is not fitted"));
+        }
+        self.inner.export_onnx(path).map_err(to_py_err)
+    }
 }
 
 /// The installed Millwright version.
@@ -172,7 +517,16 @@ fn version() -> &'static str {
 /// The `millwright` Python module.
 #[pymodule]
 fn millwright(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyFrame>()?;
     m.add_class::<PyPipeline>()?;
+    m.add_class::<PyStandardScaler>()?;
+    m.add_class::<PyMinMaxScaler>()?;
+    m.add_class::<PySimpleImputer>()?;
+    m.add_class::<PyOneHotEncoder>()?;
+    m.add_class::<PyRandomForest>()?;
+    m.add_class::<PyLinearRegression>()?;
+    #[cfg(feature = "explain")]
+    m.add_class::<PyExplainer>()?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
