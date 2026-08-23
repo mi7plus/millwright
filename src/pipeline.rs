@@ -130,6 +130,14 @@ impl Estimator for Pipeline {
         // Pipeline and still be reached by a `"outer__inner__param"` path.
         Pipeline::set_param(self, name, value)
     }
+
+    // The object-safe ONNX hook, so a boxed pipeline (e.g. a search winner held
+    // as `Box<dyn Model>`) can still be exported. Delegates to the pipeline's
+    // own `ExportOnnx` implementation.
+    #[cfg(feature = "onnx")]
+    fn to_onnx_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        crate::onnx::ExportOnnx::to_onnx(self)
+    }
 }
 
 impl Predictor for Pipeline {

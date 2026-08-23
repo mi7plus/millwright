@@ -380,9 +380,7 @@ grid! {
 
 <span class="c">// 1 — compose a pipeline: preprocessing + a model, one object</span>
 <span class="k">let</span> pipe = <span class="f">Pipeline</span>::new()
-    .step(<span class="s">"impute"</span>, <span class="f">SimpleImputer</span>::median())
-    .step(<span class="s">"encode"</span>, <span class="f">OneHot</span>::infer())
-    .step(<span class="s">"scale"</span>,  <span class="f">StandardScaler</span>::new())
+    .step(<span class="s">"scale"</span>, <span class="f">StandardScaler</span>::new())
     .balance(<span class="f">Smote</span>::default())              <span class="c">// imbalance-rs · train-time only</span>
     .estimator(<span class="s">"rf"</span>, <span class="f">RandomForest</span>::new());
 
@@ -392,17 +390,12 @@ grid! {
     .scoring(<span class="f">Metric</span>::F1)
     .fit(&amp;train)?;
 
-<span class="c">// 3 — assess &amp; explain</span>
-<span class="k">let</span> report = model.evaluate(&amp;test)?;         <span class="c">// metrics + regression-diagnostics</span>
-<span class="k">let</span> shap   = model.explain(<span class="f">Explainer</span>::kernel(), &amp;test)?;   <span class="c">// shap-rs</span>
+<span class="c">// 3 — assess &amp; explain the best model</span>
+<span class="k">let</span> report = model.evaluate(&amp;test)?;         <span class="c">// accuracy · precision · recall · f1</span>
+<span class="k">let</span> shap   = model.explain(&amp;<span class="f">Explainer</span>::kernel(), test.features())?; <span class="c">// shap-rs</span>
 
-<span class="c">// 4 — ship it: one ONNX artifact, served, with drift on every request</span>
-model.export_onnx(<span class="s">"churn.onnx"</span>)?;           <span class="c">// onnx-export-rs</span>
-
-<span class="f">Server</span>::from_onnx(<span class="s">"churn.onnx"</span>)             <span class="c">// tract inference</span>
-    .with_monitor(<span class="f">DriftMonitor</span>::psi(&amp;train)) <span class="c">// driftwatch</span>
-    .route(<span class="s">"/predict"</span>)
-    .serve(<span class="s">"0.0.0.0:8080"</span>).<span class="k">await</span>?;         <span class="c">// axum</span></pre>
+<span class="c">// 4 — ship it: one portable ONNX artifact (serve · drift-monitor below ↓)</span>
+model.export_onnx(<span class="s">"churn.onnx"</span>)?;           <span class="c">// onnx-export-rs</span></pre>
       <p class="tiny" style="margin-top:1rem">The <code class="inl">timeseries</code> feature swaps the estimator for a <span class="mono">chronos-ts</span> auto-ARIMA forecaster behind the same <code class="inl">fit</code>/<code class="inl">predict</code> contract; <code class="inl">incremental</code> swaps <code class="inl">.fit()</code> for <code class="inl">.partial_fit()</code> over batches that never fully load into memory.</p>
     </div>
   </section>
@@ -638,17 +631,17 @@ pipe.export_onnx(<span class="s">"churn.onnx"</span>)               <span class=
         <div>
           <h3>Register, serve, roll back</h3>
           <pre><span class="c">// version a trained pipeline — artifact + ONNX + metrics + lineage</span>
-<span class="k">let</span> v = <span class="f">Registry</span>::local(<span class="s">"./models"</span>)
-    .register(<span class="s">"churn"</span>, &amp;model)?
-    .tag(<span class="s">"prod"</span>);                        <span class="c">// a movable pointer</span>
+<span class="k">let</span> reg = <span class="f">Registry</span>::local(<span class="s">"./models"</span>);
+<span class="k">let</span> v = reg.register(<span class="s">"churn"</span>, &amp;model, meta)?;   <span class="c">// meta: metrics + reference dist</span>
+reg.tag(<span class="s">"churn"</span>, &amp;v.id, <span class="s">"prod"</span>)?;              <span class="c">// a movable pointer</span>
 
 <span class="c">// serve straight from the registry; the monitor uses the stored reference</span>
-<span class="f">Server</span>::from_registry(<span class="s">"churn"</span>, <span class="s">"prod"</span>)
-    .with_monitor(<span class="f">DriftMonitor</span>::from_registry(&amp;v))
+<span class="f">Server</span>::from_registry(&amp;reg, <span class="s">"churn"</span>, <span class="s">"prod"</span>)?
+    .with_monitor(<span class="f">DriftMonitor</span>::from_registry(&amp;v)?)
     .serve(<span class="s">"0.0.0.0:8080"</span>).<span class="k">await</span>?;
 
 <span class="c">// when drift fires: retrain on the recorded lineage — or revert in one line</span>
-<span class="f">Registry</span>::local(<span class="s">"./models"</span>).rollback(<span class="s">"churn"</span>, <span class="s">"prod"</span>)?;</pre>
+reg.rollback(<span class="s">"churn"</span>, <span class="s">"prod"</span>)?;</pre>
         </div>
         <div>
           <h3>Closing the loop</h3>

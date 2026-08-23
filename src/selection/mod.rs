@@ -211,6 +211,33 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "onnx")]
+    #[test]
+    fn search_winner_exports_to_onnx() {
+        use crate::backends::smartcore::LinearRegression;
+        let rows: Vec<Vec<f64>> = (0..20).map(|i| vec![i as f64, (i % 3) as f64]).collect();
+        let y: Vec<f64> = rows.iter().map(|r| 2.0 * r[0] + 1.0).collect();
+        let ds = Dataset::new(
+            Frame::from_rows(rows, vec!["x1".into(), "x2".into()]).unwrap(),
+            y,
+        )
+        .unwrap();
+        // affine preprocessing + a linear estimator => ONNX-exportable
+        let pipe = Pipeline::new()
+            .step("scale", StandardScaler::new())
+            .estimator("lr", LinearRegression::new());
+        let search = GridSearch::new(pipe, ParamGrid::new())
+            .cv(KFold::new(3))
+            .scoring(Metric::R2)
+            .fit(&ds)
+            .unwrap();
+        let path =
+            std::env::temp_dir().join(format!("mw_search_export_{}.onnx", std::process::id()));
+        search.export_onnx(&path).unwrap();
+        assert!(std::fs::metadata(&path).unwrap().len() > 0);
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn random_search_respects_n_iter() {
         let ds = two_class_dataset();

@@ -98,6 +98,15 @@ impl SearchResult {
     pub fn into_model(self) -> Box<dyn Model> {
         self.best_model
     }
+
+    /// Export the best refit model to a single ONNX file, if it is exportable
+    /// (a pipeline of affine steps + an ONNX-capable estimator).
+    #[cfg(feature = "onnx")]
+    pub fn export_onnx(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
+        let proto = self.best_model.to_onnx_proto()?;
+        onnx_export_rs::graph_builder::save_to_file(&proto, path)
+            .map_err(|e| Error::Backend(format!("ONNX save failed: {e}")))
+    }
 }
 
 impl Predictor for SearchResult {

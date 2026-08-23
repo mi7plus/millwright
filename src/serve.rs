@@ -66,6 +66,18 @@ impl Server {
         })
     }
 
+    /// Serve the tagged ONNX artifact for a model straight from a [`Registry`].
+    ///
+    /// [`Registry`]: crate::registry::Registry
+    #[cfg(feature = "registry")]
+    pub fn from_registry(
+        registry: &crate::registry::Registry,
+        name: &str,
+        tag: &str,
+    ) -> Result<Server> {
+        Server::from_onnx(registry.onnx_path(name, tag)?)
+    }
+
     /// Set the prediction route (default `/predict`).
     pub fn route(mut self, path: impl Into<String>) -> Self {
         self.route = path.into();

@@ -46,6 +46,15 @@ impl DriftMonitor {
         })
     }
 
+    /// Build a monitor from the reference distribution a registry [`Version`]
+    /// stored at registration time.
+    ///
+    /// [`Version`]: crate::registry::Version
+    #[cfg(feature = "registry")]
+    pub fn from_registry(version: &crate::registry::Version) -> Result<Self> {
+        Self::psi(&version.metadata.reference)
+    }
+
     /// Record a batch of live predictions.
     pub fn observe(&self, predictions: &[f64]) {
         self.live

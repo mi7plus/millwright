@@ -265,6 +265,43 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    #[cfg(all(feature = "serve", feature = "monitor"))]
+    #[test]
+    fn serve_and_monitor_from_registry() {
+        use crate::backends::smartcore::LinearRegression;
+        // A linear model exports to an ONNX graph tract can actually run.
+        let rows: Vec<Vec<f64>> = (0..12).map(|i| vec![i as f64, (i % 3) as f64]).collect();
+        let y: Vec<f64> = rows.iter().map(|r| 2.0 * r[0] + 1.0).collect();
+        let ds = Dataset::new(
+            Frame::from_rows(rows, vec!["x1".into(), "x2".into()]).unwrap(),
+            y,
+        )
+        .unwrap();
+        let mut lr = LinearRegression::new();
+        lr.fit(&ds).unwrap();
+
+        let root = temp_root("from_registry");
+        let reg = Registry::local(&root);
+        let v = reg
+            .register(
+                "demand",
+                &lr,
+                Metadata {
+                    reference: vec![1.0, 2.0, 3.0, 2.0, 1.0, 3.0],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        reg.tag("demand", &v.id, "prod").unwrap();
+
+        // serve the prod artifact straight from the registry...
+        let _server = crate::serve::Server::from_registry(&reg, "demand", "prod").unwrap();
+        // ...and build a PSI monitor from the version's stored reference.
+        let _monitor = crate::monitor::DriftMonitor::from_registry(&v).unwrap();
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn identical_models_dedupe() {
         let root = temp_root("dedupe");
