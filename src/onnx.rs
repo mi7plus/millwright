@@ -3,15 +3,18 @@
 //!
 //! [`ExportOnnx`] writes a trained model — or a whole [`Pipeline`](crate::pipeline::Pipeline) — to a single
 //! `.onnx` file via [`onnx-export-rs`](https://docs.rs/onnx-export-rs).
-//! [`InferenceModel`] loads any ONNX file and runs it through
-//! [`tract`](https://docs.rs/tract-onnx), so the exported artifact round-trips
-//! back into Rust and is portable to every other ONNX runtime.
+//! [`InferenceModel`] loads any ONNX file and runs it: linear / NN graphs
+//! through [`tract`](https://docs.rs/tract-onnx), and the ONNX-ML tree-ensemble
+//! ops tract doesn't implement (from an exported forest) through a small native
+//! interpreter. So the exported artifact always round-trips back into Rust — a
+//! `RandomForest` included — and stays portable to every other ONNX runtime.
 //!
-//! A pipeline is exported by folding its leading affine transformers
-//! (`StandardScaler`, `MinMaxScaler`) into the estimator's ONNX graph, producing
-//! one self-contained graph: raw features in, predictions out. Non-affine steps
-//! (imputation, one-hot) are not yet ONNX-expressible and are reported as an
-//! error naming the offending step.
+//! A pipeline is exported by splicing each leading transformer that is
+//! ONNX-expressible in front of the estimator's graph, in order — scalers as an
+//! affine `(x - shift) / scale`, imputers as `Where(IsNaN(x), fill, x)` — so the
+//! result is one self-contained graph: raw features in, predictions out. A step
+//! that changes feature width (one-hot encoding) is not yet expressible and is
+//! reported as an error naming the offending step.
 
 use std::path::Path;
 
@@ -34,13 +37,30 @@ pub trait ExportOnnx {
     }
 }
 
-/// Prepend an affine transform `y = (x - shift) / scale` to a model graph whose
-/// input tensor is named `X`.
-///
-/// The estimator's input `X` becomes an internal tensor produced by the affine
-/// nodes; a fresh graph input `mw_input` feeds the transform. Used to splice a
-/// scaler in front of an estimator so the whole pipeline is one ONNX graph.
-pub(crate) fn prepend_affine(proto: &mut ModelProto, shift: &[f32], scale: &[f32]) -> Result<()> {
+/// A preprocessing step expressible as ONNX graph nodes, prepended in front of
+/// an estimator so a whole pipeline becomes one graph. Each maps a same-width
+/// feature tensor to another.
+pub enum Prefix {
+    /// `y = (x - shift) / scale`, elementwise per column (scalers).
+    Affine { shift: Vec<f64>, scale: Vec<f64> },
+    /// Replace missing (`NaN`) values with a per-column constant (imputers).
+    Impute { fill: Vec<f64> },
+}
+
+fn row_tensor(name: &str, vals: &[f64]) -> Result<onnx_export_rs::proto::TensorProto> {
+    let f: Vec<f32> = vals.iter().map(|v| *v as f32).collect();
+    Ok(make_tensor(
+        name,
+        &Array2::from_shape_vec((1, f.len()), f)
+            .map_err(|e| Error::Backend(e.to_string()))?
+            .into_dyn(),
+    ))
+}
+
+/// Prepend a chain of preprocessing [`Prefix`] steps to a model graph, so the
+/// graph consumes raw features on a fresh `mw_input` and threads them through
+/// the prefixes into the estimator's original input.
+pub(crate) fn prepend_prefixes(proto: &mut ModelProto, prefixes: &[Prefix]) -> Result<()> {
     let graph = proto
         .graph
         .as_mut()
@@ -51,34 +71,64 @@ pub(crate) fn prepend_affine(proto: &mut ModelProto, shift: &[f32], scale: &[f32
         .map(|vi| vi.name.clone())
         .ok_or_else(|| Error::Backend("exported model has no input".into()))?;
 
-    let shift_t = make_tensor(
-        "mw_shift",
-        &Array2::from_shape_vec((1, shift.len()), shift.to_vec())
-            .map_err(|e| Error::Backend(e.to_string()))?
-            .into_dyn(),
-    );
-    let scale_t = make_tensor(
-        "mw_scale",
-        &Array2::from_shape_vec((1, scale.len()), scale.to_vec())
-            .map_err(|e| Error::Backend(e.to_string()))?
-            .into_dyn(),
-    );
+    let mut nodes = Vec::new();
+    let mut inits = Vec::new();
+    let mut cur = "mw_input".to_string();
+    for (i, prefix) in prefixes.iter().enumerate() {
+        // the last prefix feeds the estimator's original input
+        let out = if i + 1 == prefixes.len() {
+            est_input.clone()
+        } else {
+            format!("mw_pre{i}")
+        };
+        match prefix {
+            Prefix::Impute { fill } => {
+                let mask = format!("mw_isnan{i}");
+                let fill_name = format!("mw_fill{i}");
+                nodes.push(make_node(
+                    "IsNaN",
+                    [cur.as_str()],
+                    [mask.as_str()],
+                    Vec::new(),
+                ));
+                // Where(mask, fill, x): pick the fill where x is NaN, else x.
+                nodes.push(make_node(
+                    "Where",
+                    [mask.as_str(), fill_name.as_str(), cur.as_str()],
+                    [out.as_str()],
+                    Vec::new(),
+                ));
+                inits.push(row_tensor(&fill_name, fill)?);
+            }
+            Prefix::Affine { shift, scale } => {
+                let centered = format!("mw_cent{i}");
+                let shift_name = format!("mw_shift{i}");
+                let scale_name = format!("mw_scale{i}");
+                nodes.push(make_node(
+                    "Sub",
+                    [cur.as_str(), shift_name.as_str()],
+                    [centered.as_str()],
+                    Vec::new(),
+                ));
+                nodes.push(make_node(
+                    "Div",
+                    [centered.as_str(), scale_name.as_str()],
+                    [out.as_str()],
+                    Vec::new(),
+                ));
+                inits.push(row_tensor(&shift_name, shift)?);
+                inits.push(row_tensor(&scale_name, scale)?);
+            }
+        }
+        cur = out;
+    }
 
-    // mw_input - mw_shift -> mw_centered ; mw_centered / mw_scale -> <est_input>
-    let sub = make_node("Sub", ["mw_input", "mw_shift"], ["mw_centered"], Vec::new());
-    let div = make_node(
-        "Div",
-        ["mw_centered", "mw_scale"],
-        [est_input.as_str()],
-        Vec::new(),
-    );
-
-    graph.initializer.push(shift_t);
-    graph.initializer.push(scale_t);
-    // affine nodes must run before the estimator's nodes
-    graph.node.insert(0, div);
-    graph.node.insert(0, sub);
-    // the graph now consumes raw features on `mw_input`
+    for init in inits {
+        graph.initializer.push(init);
+    }
+    // prefix nodes must run before the estimator's nodes, in order
+    nodes.append(&mut graph.node);
+    graph.node = nodes;
     if let Some(vi) = graph.input.first_mut() {
         vi.name = "mw_input".into();
     }
@@ -261,6 +311,16 @@ mod native {
             input: String,
             out: String,
         },
+        IsNaN {
+            input: String,
+            out: String,
+        },
+        Where {
+            cond: String,
+            a: String,
+            b: String,
+            out: String,
+        },
     }
 
     pub struct NativeGraph {
@@ -315,6 +375,16 @@ mod native {
                     }),
                     "ArgMax" => ops.push(Op::ArgMax {
                         input: inp(0),
+                        out: out(0),
+                    }),
+                    "IsNaN" => ops.push(Op::IsNaN {
+                        input: inp(0),
+                        out: out(0),
+                    }),
+                    "Where" => ops.push(Op::Where {
+                        cond: inp(0),
+                        a: inp(1),
+                        b: inp(2),
                         out: out(0),
                     }),
                     other => {
@@ -397,6 +467,50 @@ mod native {
                             Mat {
                                 rows: x.rows,
                                 cols: 1,
+                                data,
+                            },
+                        );
+                    }
+                    Op::IsNaN { input, out } => {
+                        let x = get(&env, input)?;
+                        let data = x
+                            .data
+                            .iter()
+                            .map(|v| if v.is_nan() { 1.0 } else { 0.0 })
+                            .collect();
+                        env.insert(
+                            out.as_str(),
+                            Mat {
+                                rows: x.rows,
+                                cols: x.cols,
+                                data,
+                            },
+                        );
+                    }
+                    Op::Where { cond, a, b, out } => {
+                        // out = cond != 0 ? a : b, with `a` broadcast per column.
+                        let (cond, a, b) = (get(&env, cond)?, get(&env, a)?, get(&env, b)?);
+                        let cols = b.cols;
+                        let mut data = Vec::with_capacity(b.rows * cols);
+                        for r in 0..b.rows {
+                            for c in 0..cols {
+                                let av = if a.rows == 1 {
+                                    a.data[c]
+                                } else {
+                                    a.data[r * a.cols + c]
+                                };
+                                data.push(if cond.data[r * cond.cols + c] != 0.0 {
+                                    av
+                                } else {
+                                    b.data[r * cols + c]
+                                });
+                            }
+                        }
+                        env.insert(
+                            out.as_str(),
+                            Mat {
+                                rows: b.rows,
+                                cols,
                                 data,
                             },
                         );

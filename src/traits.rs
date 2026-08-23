@@ -116,6 +116,17 @@ pub trait Transformer: TransformerClone + Send + Sync {
         None
     }
 
+    /// This transformer as an ONNX graph [`Prefix`](crate::onnx::Prefix), so a
+    /// pipeline can splice it in front of the estimator on export. Defaults to
+    /// the affine map from [`as_affine`](Self::as_affine); non-affine steps that
+    /// are still ONNX-expressible (e.g. imputers) override this. `None` means
+    /// "not ONNX-exportable".
+    #[cfg(feature = "onnx")]
+    fn onnx_prefix(&self) -> Option<crate::onnx::Prefix> {
+        self.as_affine()
+            .map(|(shift, scale)| crate::onnx::Prefix::Affine { shift, scale })
+    }
+
     /// Set a hyperparameter by name. Unknown names are an error.
     fn set_param(&mut self, name: &str, _value: ParamValue) -> Result<()> {
         Err(Error::Param(format!(

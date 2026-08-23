@@ -13,6 +13,11 @@ All notable changes to Millwright are recorded here. The format follows
   native interpreter. A model exported by Millwright always round-trips back into
   `InferenceModel`/`Server` — forests included — while the artifact stays portable
   to any ONNX runtime.
+- **Imputers are ONNX-exportable.** A `SimpleImputer` step now exports as
+  `Where(IsNaN(x), fill, x)`, so an `impute → scale → model` pipeline exports and
+  serves as one graph (via tract, or the native interpreter behind a forest). The
+  pipeline export generalized from folding one affine map to splicing an ordered
+  chain of transformer "prefixes" (new `Transformer::onnx_prefix`).
 - **`SearchResult::export_onnx`** — a `GridSearch`/`RandomSearch` winner can now
   be exported to ONNX (it could only `predict` before). Backed by a new
   object-safe `Estimator::to_onnx_proto` on `Pipeline`.

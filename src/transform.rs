@@ -289,6 +289,14 @@ impl Transformer for SimpleImputer {
         }
         Frame::new(buf, n, p, self.columns.clone())?.with_dtypes(frame.dtypes().to_vec())
     }
+
+    #[cfg(feature = "onnx")]
+    fn onnx_prefix(&self) -> Option<crate::onnx::Prefix> {
+        // transform(x) = where(isnan(x), fill, x)
+        self.fitted.then(|| crate::onnx::Prefix::Impute {
+            fill: self.fills.clone(),
+        })
+    }
 }
 
 fn median(values: &[f64]) -> f64 {
