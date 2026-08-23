@@ -394,8 +394,13 @@ grid! {
 <span class="k">let</span> report = model.evaluate(&amp;test)?;         <span class="c">// accuracy · precision · recall · f1</span>
 <span class="k">let</span> shap   = model.explain(&amp;<span class="f">Explainer</span>::kernel(), test.features())?; <span class="c">// shap-rs</span>
 
-<span class="c">// 4 — ship it: one portable ONNX artifact (serve · drift-monitor below ↓)</span>
-model.export_onnx(<span class="s">"churn.onnx"</span>)?;           <span class="c">// onnx-export-rs</span></pre>
+<span class="c">// 4 — ship it: one ONNX artifact, served, with drift on every request</span>
+model.export_onnx(<span class="s">"churn.onnx"</span>)?;           <span class="c">// onnx-export-rs</span>
+
+<span class="f">Server</span>::from_onnx(<span class="s">"churn.onnx"</span>)?            <span class="c">// forests run natively in Millwright</span>
+    .with_monitor(<span class="f">DriftMonitor</span>::psi(&amp;reference)?) <span class="c">// driftwatch · training preds</span>
+    .route(<span class="s">"/predict"</span>)
+    .serve(<span class="s">"0.0.0.0:8080"</span>).<span class="k">await</span>?;         <span class="c">// axum</span></pre>
       <p class="tiny" style="margin-top:1rem">The <code class="inl">timeseries</code> feature swaps the estimator for a <span class="mono">chronos-ts</span> auto-ARIMA forecaster behind the same <code class="inl">fit</code>/<code class="inl">predict</code> contract; <code class="inl">incremental</code> swaps <code class="inl">.fit()</code> for <code class="inl">.partial_fit()</code> over batches that never fully load into memory.</p>
     </div>
   </section>
@@ -718,7 +723,6 @@ reg.rollback(<span class="s">"churn"</span>, <span class="s">"prod"</span>)?;</p
             <li><b>Not GPU/distributed in v1.</b> CPU + <span class="mono">rayon</span> parallelism; scale-out is a later story, flagged not faked.</li>
             <li><b>Dependency maturity.</b> Ten young single-author crates underneath — mitigated by exact-version pins and a feature-matrix CI, but it is the real risk to own.</li>
             <li><b>Conversion cost.</b> The two-<span class="mono">ndarray</span> bridge copies; measured, with zero-copy fast paths where layout allows.</li>
-            <li><b>Served ONNX op coverage.</b> The built-in <span class="mono">tract</span> server runs affine, linear, and NN graphs; a tree-ensemble model (a forest) exports as ONNX-ML for a full runtime like <span class="mono">onnxruntime</span>.</li>
           </ul>
         </div>
       </div>

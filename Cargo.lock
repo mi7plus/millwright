@@ -1956,6 +1956,7 @@ dependencies = [
  "plotters",
  "plotters-statistical",
  "polars",
+ "prost 0.13.5",
  "pyo3",
  "rayon",
  "regression-diagnostics",

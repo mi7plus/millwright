@@ -71,7 +71,7 @@ reg.tag(<span class="s">"demand"</span>, &amp;v1.id, <span class="s">"prod"</spa
     .with_monitor(<span class="f">DriftMonitor</span>::psi(&amp;reference)?)
     .serve(<span class="s">"0.0.0.0:8080"</span>).<span class="k">await</span>?;         <span class="c">// POST /predict, GET /metrics</span></pre>
       <p class="run">cargo run --example operations --features "onnx registry monitor serve"</p>
-      <div class="callout"><b>Serving op coverage.</b> The <code class="inl">tract</code>-backed <code class="inl">Server</code> runs affine, linear, and NN graphs — a linear model round-trips fully. A tree-ensemble model (a forest) exports as valid ONNX-ML for a full runtime like <span class="mono">onnxruntime</span>.</div>
+      <div class="callout"><b>Serving any model.</b> The <code class="inl">Server</code> runs linear / NN ONNX graphs through <code class="inl">tract</code>, and evaluates ONNX-ML tree ensembles (a forest) with a small native interpreter — so a model exported by Millwright always serves in Millwright, and the artifact stays portable to any ONNX runtime.</div>
     </div>
   </section>
 

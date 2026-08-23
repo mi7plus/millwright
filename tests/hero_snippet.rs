@@ -37,9 +37,13 @@ fn brief_hero_snippet_compiles_and_runs() {
         .explain(&Explainer::kernel(), test.features())
         .unwrap();
 
-    // 4 — export one portable ONNX artifact
+    // 4 — export one portable ONNX artifact, then serve it (load it back)
     let path = std::env::temp_dir().join(format!("mw_hero_{}.onnx", std::process::id()));
     model.export_onnx(&path).unwrap();
     assert!(std::fs::metadata(&path).unwrap().len() > 0);
+
+    // the exported forest round-trips back into Millwright's own runtime
+    let served = InferenceModel::load(&path).unwrap();
+    assert_eq!(served.predict(test.features()).unwrap().len(), 40);
     let _ = std::fs::remove_file(&path);
 }

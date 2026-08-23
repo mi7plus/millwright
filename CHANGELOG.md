@@ -7,6 +7,12 @@ All notable changes to Millwright are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Exported forests now serve in Millwright.** `InferenceModel` runs linear / NN
+  ONNX graphs through tract as before, and evaluates the ONNX-ML tree-ensemble
+  ops tract doesn't implement (from an exported `RandomForest`) with a small
+  native interpreter. A model exported by Millwright always round-trips back into
+  `InferenceModel`/`Server` — forests included — while the artifact stays portable
+  to any ONNX runtime.
 - **`SearchResult::export_onnx`** — a `GridSearch`/`RandomSearch` winner can now
   be exported to ONNX (it could only `predict` before). Backed by a new
   object-safe `Estimator::to_onnx_proto` on `Pipeline`.
