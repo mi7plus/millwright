@@ -18,8 +18,10 @@ fn brief_hero_snippet_compiles_and_runs() {
     .unwrap();
     let test = train.clone();
 
-    // 1 — compose
+    // 1 — compose (impute + one-hot + scale all export to ONNX now)
     let pipe = Pipeline::new()
+        .step("impute", SimpleImputer::median())
+        .step("encode", OneHotEncoder::infer())
         .step("scale", StandardScaler::new())
         .balance(Smote::default())
         .estimator("rf", RandomForest::new());

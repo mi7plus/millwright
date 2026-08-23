@@ -153,10 +153,10 @@ impl Predictor for Pipeline {
 
 /// Export the whole pipeline as one ONNX graph: each leading transformer that
 /// can express itself as ONNX nodes (scalers as an affine map, imputers as a
-/// `Where(IsNaN, fill, x)`) is spliced in front of the estimator's graph, in
-/// order. A step that can't (e.g. one-hot, which changes width) is reported as
-/// an error naming the step; the train-time balancer is inference-irrelevant
-/// and skipped.
+/// `Where(IsNaN, fill, x)`, one-hot encoders as a `Gather`/`Equal`/`Concat`
+/// expansion) is spliced in front of the estimator's graph, in order. A step
+/// with no ONNX form is reported as an error naming it; the train-time balancer
+/// is inference-irrelevant and skipped.
 #[cfg(feature = "onnx")]
 impl crate::onnx::ExportOnnx for Pipeline {
     fn to_onnx(&self) -> Result<onnx_export_rs::proto::ModelProto> {

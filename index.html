@@ -380,7 +380,9 @@ grid! {
 
 <span class="c">// 1 — compose a pipeline: preprocessing + a model, one object</span>
 <span class="k">let</span> pipe = <span class="f">Pipeline</span>::new()
-    .step(<span class="s">"scale"</span>, <span class="f">StandardScaler</span>::new())
+    .step(<span class="s">"impute"</span>, <span class="f">SimpleImputer</span>::median())
+    .step(<span class="s">"encode"</span>, <span class="f">OneHotEncoder</span>::infer())
+    .step(<span class="s">"scale"</span>,  <span class="f">StandardScaler</span>::new())
     .balance(<span class="f">Smote</span>::default())              <span class="c">// imbalance-rs · train-time only</span>
     .estimator(<span class="s">"rf"</span>, <span class="f">RandomForest</span>::new());
 

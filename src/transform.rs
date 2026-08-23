@@ -433,6 +433,13 @@ impl Transformer for OneHotEncoder {
         }
         Frame::new(buf, n, out_cols.len(), out_cols)
     }
+
+    #[cfg(feature = "onnx")]
+    fn onnx_prefix(&self) -> Option<crate::onnx::Prefix> {
+        self.fitted.then(|| crate::onnx::Prefix::OneHot {
+            columns: self.categories.iter().map(|(_, c)| c.clone()).collect(),
+        })
+    }
 }
 
 fn is_integral(col: &[f64]) -> bool {

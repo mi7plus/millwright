@@ -9,17 +9,20 @@
 //! interpreter. So the exported artifact always round-trips back into Rust — a
 //! `RandomForest` included — and stays portable to every other ONNX runtime.
 //!
-//! A pipeline is exported by splicing each leading transformer that is
-//! ONNX-expressible in front of the estimator's graph, in order — scalers as an
-//! affine `(x - shift) / scale`, imputers as `Where(IsNaN(x), fill, x)` — so the
-//! result is one self-contained graph: raw features in, predictions out. A step
-//! that changes feature width (one-hot encoding) is not yet expressible and is
-//! reported as an error naming the offending step.
+//! A pipeline is exported by splicing each leading transformer in front of the
+//! estimator's graph, in order — scalers as an affine `(x - shift) / scale`,
+//! imputers as `Where(IsNaN(x), fill, x)`, one-hot encoders as
+//! `Concat(Cast(Equal(Round(Gather(x)), cat)))` — so the result is one
+//! self-contained graph: raw features in, predictions out. A step with no ONNX
+//! form is reported as an error naming it.
 
 use std::path::Path;
 
 use ndarray::Array2;
-use onnx_export_rs::graph_builder::{make_node, make_tensor, save_to_file};
+use onnx_export_rs::graph_builder::{
+    int_attribute, make_i64_tensor, make_node, make_tensor, make_value_info, save_to_file,
+    Dimension, FLOAT,
+};
 use onnx_export_rs::proto::ModelProto;
 
 use crate::error::{Error, Result};
@@ -45,6 +48,9 @@ pub enum Prefix {
     Affine { shift: Vec<f64>, scale: Vec<f64> },
     /// Replace missing (`NaN`) values with a per-column constant (imputers).
     Impute { fill: Vec<f64> },
+    /// One-hot encode: `columns[c]` is the categories input column `c` expands to
+    /// (an empty list passes the column through). Changes the feature width.
+    OneHot { columns: Vec<Vec<i64>> },
 }
 
 fn row_tensor(name: &str, vals: &[f64]) -> Result<onnx_export_rs::proto::TensorProto> {
@@ -119,6 +125,59 @@ pub(crate) fn prepend_prefixes(proto: &mut ModelProto, prefixes: &[Prefix]) -> R
                 inits.push(row_tensor(&shift_name, shift)?);
                 inits.push(row_tensor(&scale_name, scale)?);
             }
+            Prefix::OneHot { columns } => {
+                // For each input column: Gather it out, and either pass it
+                // through or expand it to Cast(Equal(Round(col), cat)) indicators.
+                // Concat every piece (in order) into the wider encoded tensor.
+                let mut pieces: Vec<String> = Vec::new();
+                for (c, cats) in columns.iter().enumerate() {
+                    let idx_name = format!("mw_idx{i}_{c}");
+                    inits.push(make_i64_tensor(&idx_name, &[1], vec![c as i64]));
+                    let col = format!("mw_col{i}_{c}");
+                    nodes.push(make_node(
+                        "Gather",
+                        [cur.as_str(), idx_name.as_str()],
+                        [col.as_str()],
+                        vec![int_attribute("axis", 1)],
+                    ));
+                    if cats.is_empty() {
+                        pieces.push(col);
+                        continue;
+                    }
+                    let rounded = format!("mw_round{i}_{c}");
+                    nodes.push(make_node(
+                        "Round",
+                        [col.as_str()],
+                        [rounded.as_str()],
+                        Vec::new(),
+                    ));
+                    for (j, cat) in cats.iter().enumerate() {
+                        let cat_name = format!("mw_cat{i}_{c}_{j}");
+                        inits.push(row_tensor(&cat_name, &[*cat as f64])?);
+                        let eq = format!("mw_eq{i}_{c}_{j}");
+                        nodes.push(make_node(
+                            "Equal",
+                            [rounded.as_str(), cat_name.as_str()],
+                            [eq.as_str()],
+                            Vec::new(),
+                        ));
+                        let ind = format!("mw_ind{i}_{c}_{j}");
+                        nodes.push(make_node(
+                            "Cast",
+                            [eq.as_str()],
+                            [ind.as_str()],
+                            vec![int_attribute("to", FLOAT as i64)],
+                        ));
+                        pieces.push(ind);
+                    }
+                }
+                nodes.push(make_node(
+                    "Concat",
+                    pieces,
+                    [out.as_str()],
+                    vec![int_attribute("axis", 1)],
+                ));
+            }
         }
         cur = out;
     }
@@ -129,8 +188,23 @@ pub(crate) fn prepend_prefixes(proto: &mut ModelProto, prefixes: &[Prefix]) -> R
     // prefix nodes must run before the estimator's nodes, in order
     nodes.append(&mut graph.node);
     graph.node = nodes;
+
+    // The graph now consumes raw features on `mw_input`. Declare it with the raw
+    // feature width (the width the first prefix consumes) — which differs from
+    // the estimator's input width when a prefix changes width (one-hot).
+    let raw_width = match &prefixes[0] {
+        Prefix::Affine { shift, .. } => shift.len(),
+        Prefix::Impute { fill } => fill.len(),
+        Prefix::OneHot { columns } => columns.len(),
+    };
     if let Some(vi) = graph.input.first_mut() {
-        vi.name = "mw_input".into();
+        *vi = make_value_info(
+            "mw_input",
+            &[
+                Dimension::Symbolic("batch".into()),
+                Dimension::Fixed(raw_width),
+            ],
+        );
     }
     Ok(())
 }
@@ -321,6 +395,29 @@ mod native {
             b: String,
             out: String,
         },
+        Gather {
+            input: String,
+            cols: Vec<usize>,
+            out: String,
+        },
+        Round {
+            input: String,
+            out: String,
+        },
+        Equal {
+            input: String,
+            value: f32,
+            out: String,
+        },
+        // Cast is a no-op here: every tensor is already f32.
+        Cast {
+            input: String,
+            out: String,
+        },
+        Concat {
+            inputs: Vec<String>,
+            out: String,
+        },
     }
 
     pub struct NativeGraph {
@@ -347,11 +444,15 @@ mod native {
                 .map(|v| v.name.clone())
                 .ok_or_else(|| Error::Backend("native ONNX: no output".into()))?;
 
-            let inits = g
+            let inits: HashMap<String, Mat> = g
                 .initializer
                 .iter()
                 .map(|t| (t.name.clone(), tensor_to_mat(t)))
                 .collect();
+            // Raw initializers, to bake Gather indices / Equal constants at parse
+            // time (so the interpreter's runtime tensors stay uniformly f32).
+            let raw: HashMap<&str, &TensorProto> =
+                g.initializer.iter().map(|t| (t.name.as_str(), t)).collect();
 
             let mut ops = Vec::with_capacity(g.node.len());
             for n in &g.node {
@@ -385,6 +486,42 @@ mod native {
                         cond: inp(0),
                         a: inp(1),
                         b: inp(2),
+                        out: out(0),
+                    }),
+                    "Gather" => {
+                        // indices live in the second input (an int64 initializer)
+                        let cols = raw
+                            .get(n.input[1].as_str())
+                            .map(|t| read_i64s(t).iter().map(|v| *v as usize).collect())
+                            .unwrap_or_default();
+                        ops.push(Op::Gather {
+                            input: inp(0),
+                            cols,
+                            out: out(0),
+                        });
+                    }
+                    "Round" => ops.push(Op::Round {
+                        input: inp(0),
+                        out: out(0),
+                    }),
+                    "Equal" => {
+                        // the compared constant lives in the second input
+                        let value = raw
+                            .get(n.input[1].as_str())
+                            .and_then(|t| read_floats(t).first().copied())
+                            .unwrap_or(f32::NAN);
+                        ops.push(Op::Equal {
+                            input: inp(0),
+                            value,
+                            out: out(0),
+                        });
+                    }
+                    "Cast" => ops.push(Op::Cast {
+                        input: inp(0),
+                        out: out(0),
+                    }),
+                    "Concat" => ops.push(Op::Concat {
+                        inputs: n.input.clone(),
                         out: out(0),
                     }),
                     other => {
@@ -515,6 +652,72 @@ mod native {
                             },
                         );
                     }
+                    Op::Gather { input, cols, out } => {
+                        // select `cols` columns (axis 1) from the input
+                        let x = get(&env, input)?;
+                        let mut data = Vec::with_capacity(x.rows * cols.len());
+                        for r in 0..x.rows {
+                            for &c in cols {
+                                data.push(x.data[r * x.cols + c]);
+                            }
+                        }
+                        env.insert(
+                            out.as_str(),
+                            Mat {
+                                rows: x.rows,
+                                cols: cols.len(),
+                                data,
+                            },
+                        );
+                    }
+                    Op::Round { input, out } => {
+                        let x = get(&env, input)?;
+                        let data = x.data.iter().map(|v| v.round()).collect();
+                        env.insert(
+                            out.as_str(),
+                            Mat {
+                                rows: x.rows,
+                                cols: x.cols,
+                                data,
+                            },
+                        );
+                    }
+                    Op::Equal { input, value, out } => {
+                        let x = get(&env, input)?;
+                        let data = x
+                            .data
+                            .iter()
+                            .map(|v| if v == value { 1.0 } else { 0.0 })
+                            .collect();
+                        env.insert(
+                            out.as_str(),
+                            Mat {
+                                rows: x.rows,
+                                cols: x.cols,
+                                data,
+                            },
+                        );
+                    }
+                    Op::Cast { input, out } => {
+                        let x = get(&env, input)?;
+                        env.insert(out.as_str(), x);
+                    }
+                    Op::Concat { inputs, out } => {
+                        // horizontally stack the pieces (all share row count)
+                        let pieces: Vec<Mat> = inputs
+                            .iter()
+                            .map(|nm| get(&env, nm))
+                            .collect::<Result<_>>()?;
+                        let rows = pieces.first().map_or(0, |m| m.rows);
+                        let cols: usize = pieces.iter().map(|m| m.cols).sum();
+                        let mut data = Vec::with_capacity(rows * cols);
+                        for r in 0..rows {
+                            for m in &pieces {
+                                data.extend_from_slice(&m.data[r * m.cols..(r + 1) * m.cols]);
+                            }
+                        }
+                        env.insert(out.as_str(), Mat { rows, cols, data });
+                    }
                 }
             }
 
@@ -640,6 +843,19 @@ mod native {
                 .0
                 .iter()
                 .map(|c| f32::from_le_bytes(*c))
+                .collect()
+        }
+    }
+
+    fn read_i64s(t: &TensorProto) -> Vec<i64> {
+        if !t.int64_data.is_empty() {
+            t.int64_data.clone()
+        } else {
+            t.raw_data
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|c| i64::from_le_bytes(*c))
                 .collect()
         }
     }
