@@ -6,6 +6,8 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-23
+
 ### Added
 - **Exported forests now serve in Millwright.** `InferenceModel` runs linear / NN
   ONNX graphs through tract as before, and evaluates the ONNX-ML tree-ensemble
