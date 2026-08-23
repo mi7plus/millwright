@@ -718,6 +718,7 @@ reg.rollback(<span class="s">"churn"</span>, <span class="s">"prod"</span>)?;</p
             <li><b>Not GPU/distributed in v1.</b> CPU + <span class="mono">rayon</span> parallelism; scale-out is a later story, flagged not faked.</li>
             <li><b>Dependency maturity.</b> Ten young single-author crates underneath — mitigated by exact-version pins and a feature-matrix CI, but it is the real risk to own.</li>
             <li><b>Conversion cost.</b> The two-<span class="mono">ndarray</span> bridge copies; measured, with zero-copy fast paths where layout allows.</li>
+            <li><b>Served ONNX op coverage.</b> The built-in <span class="mono">tract</span> server runs affine, linear, and NN graphs; a tree-ensemble model (a forest) exports as ONNX-ML for a full runtime like <span class="mono">onnxruntime</span>.</li>
           </ul>
         </div>
       </div>
