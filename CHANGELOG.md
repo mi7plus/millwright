@@ -6,6 +6,15 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **`SearchResult::export_onnx`** — a `GridSearch`/`RandomSearch` winner can now
+  be exported to ONNX (it could only `predict` before). Backed by a new
+  object-safe `Estimator::to_onnx_proto` on `Pipeline`.
+- **`Server::from_registry(&reg, name, tag)`** and
+  **`DriftMonitor::from_registry(&version)`** — serve a tagged artifact straight
+  from a registry, and build a PSI monitor from the version's stored reference
+  distribution.
+
 ## [0.2.0] - 2026-08-23
 
 ### Added
