@@ -24,3 +24,7 @@ Repository = "https://github.com/mi7plus/millwright"
 # Build the pyo3 extension behind the `python` feature; the module is `millwright`.
 features = ["python"]
 module-name = "millwright"
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+addopts = "--strict-markers --strict-config"

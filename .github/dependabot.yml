@@ -8,6 +8,29 @@ updates:
     groups:
       rust-infrastructure:
         patterns: ["*"]
+        exclude-patterns:
+          # These crates form type/serialization boundaries with the exact-pinned
+          # ML engines. Upgrade them deliberately, with the full feature matrix.
+          - "ndarray"
+          - "prost"
+          - "sha2"
+          - "criterion"
+    ignore:
+      # Engine versions are exact by design. Dependabot PRs cannot safely infer
+      # coordinated upgrades across their ndarray and ONNX type boundaries.
+      - dependency-name: "smartcore"
+      - dependency-name: "imbalance-rs"
+      - dependency-name: "model-selection-rs"
+      - dependency-name: "linfa*"
+      - dependency-name: "hyperopt-rs"
+      - dependency-name: "regression-diagnostics"
+      - dependency-name: "shap-rs"
+      - dependency-name: "plotters-statistical"
+      - dependency-name: "onnx-export-rs"
+      - dependency-name: "driftwatch"
+      - dependency-name: "chronos-ts"
+      - dependency-name: "incremental-rs"
+      - dependency-name: "polars"
     labels: ["dependencies", "rust"]
 
   - package-ecosystem: github-actions
@@ -17,6 +40,11 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+        exclude-patterns: ["dtolnay/rust-toolchain"]
+    ignore:
+      # @1.95 is a Rust toolchain selector, not an action release. It is also
+      # expressed as an input in CI, but keep this guard against regressions.
+      - dependency-name: "dtolnay/rust-toolchain"
     labels: ["dependencies", "github-actions"]
 
   - package-ecosystem: pip
