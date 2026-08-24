@@ -19,7 +19,7 @@ jobs:
       contents: read
       id-token: write # required for crates.io Trusted Publishing (OIDC)
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
