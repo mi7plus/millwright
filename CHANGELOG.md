@@ -6,6 +6,8 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-24
+
 ## [0.2.1] - 2026-08-23
 
 ### Added
