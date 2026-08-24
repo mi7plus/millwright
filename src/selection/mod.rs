@@ -15,6 +15,8 @@
 //! use millwright::grid;
 //!
 //! # fn main() -> millwright::Result<()> {
+//! # #[cfg(feature = "smartcore-backend")]
+//! # {
 //! # let train: Dataset = todo!();
 //! let pipe = Pipeline::new()
 //!     .step("scale", StandardScaler::new())
@@ -28,6 +30,7 @@
 //! println!("best F1 = {:.3}", search.best_score());
 //! let preds = search.predict(train.features())?;
 //! # let _ = preds;
+//! # }
 //! # Ok(())
 //! # }
 //! ```

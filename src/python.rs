@@ -101,7 +101,7 @@ fn table_arg(data: &Bound<'_, PyAny>) -> PyResult<Table> {
 // ---------------------------------------------------------------------------
 
 /// A dense matrix of features with named columns — the data every step speaks.
-#[pyclass(name = "Frame")]
+#[pyclass(name = "Frame", from_py_object)]
 #[derive(Clone)]
 pub struct PyFrame {
     inner: Frame,
@@ -167,7 +167,7 @@ impl PyFrame {
 /// or Parquet — the front of the lifecycle, before it lowers to a numeric
 /// `Frame`.
 #[cfg(feature = "eda")]
-#[pyclass(name = "Table")]
+#[pyclass(name = "Table", from_py_object)]
 #[derive(Clone)]
 struct PyTable {
     inner: Table,
@@ -267,7 +267,7 @@ impl PyProfile {
 // ---------------------------------------------------------------------------
 
 /// Standardize each column to zero mean and unit variance.
-#[pyclass(name = "StandardScaler")]
+#[pyclass(name = "StandardScaler", from_py_object)]
 #[derive(Clone)]
 struct PyStandardScaler;
 #[pymethods]
@@ -279,7 +279,7 @@ impl PyStandardScaler {
 }
 
 /// Scale each column into `[0, 1]`.
-#[pyclass(name = "MinMaxScaler")]
+#[pyclass(name = "MinMaxScaler", from_py_object)]
 #[derive(Clone)]
 struct PyMinMaxScaler;
 #[pymethods]
@@ -291,7 +291,7 @@ impl PyMinMaxScaler {
 }
 
 /// Fill missing values with a per-column statistic (`"median"` or `"mean"`).
-#[pyclass(name = "SimpleImputer")]
+#[pyclass(name = "SimpleImputer", from_py_object)]
 #[derive(Clone)]
 struct PySimpleImputer {
     strategy: String,
@@ -320,7 +320,7 @@ impl PySimpleImputer {
 }
 
 /// One-hot encode inferred low-cardinality integer columns.
-#[pyclass(name = "OneHotEncoder")]
+#[pyclass(name = "OneHotEncoder", from_py_object)]
 #[derive(Clone)]
 struct PyOneHotEncoder;
 #[pymethods]
@@ -332,7 +332,7 @@ impl PyOneHotEncoder {
 }
 
 /// A random-forest estimator.
-#[pyclass(name = "RandomForest")]
+#[pyclass(name = "RandomForest", from_py_object)]
 #[derive(Clone)]
 struct PyRandomForest {
     n_trees: u16,
@@ -348,7 +348,7 @@ impl PyRandomForest {
 }
 
 /// An ordinary-least-squares regressor.
-#[pyclass(name = "LinearRegression")]
+#[pyclass(name = "LinearRegression", from_py_object)]
 #[derive(Clone)]
 struct PyLinearRegression;
 #[pymethods]
@@ -360,7 +360,7 @@ impl PyLinearRegression {
 }
 
 /// A k-nearest-neighbours classifier.
-#[pyclass(name = "Knn")]
+#[pyclass(name = "Knn", from_py_object)]
 #[derive(Clone)]
 struct PyKnn {
     k: usize,
@@ -376,7 +376,7 @@ impl PyKnn {
 
 /// A support vector classifier (linear by default; pass `gamma` for an RBF
 /// kernel, or use `Svc.rbf()`).
-#[pyclass(name = "Svc")]
+#[pyclass(name = "Svc", from_py_object)]
 #[derive(Clone)]
 struct PySvc {
     c: f64,
@@ -401,7 +401,7 @@ impl PySvc {
 }
 
 /// A Gaussian naive-Bayes classifier.
-#[pyclass(name = "NaiveBayes")]
+#[pyclass(name = "NaiveBayes", from_py_object)]
 #[derive(Clone)]
 struct PyNaiveBayes;
 #[pymethods]
@@ -415,7 +415,7 @@ impl PyNaiveBayes {
 /// A pre-trained ONNX model (e.g. exported from scikit-learn or PyTorch), used
 /// as a pipeline's frozen estimator behind Millwright's preprocessing steps.
 #[cfg(feature = "onnx")]
-#[pyclass(name = "OnnxModel")]
+#[pyclass(name = "OnnxModel", from_py_object)]
 #[derive(Clone)]
 struct PyOnnxModel {
     path: String,
@@ -504,7 +504,7 @@ fn set_estimator(
 
 /// A SHAP explainer configuration.
 #[cfg(feature = "explain")]
-#[pyclass(name = "Explainer")]
+#[pyclass(name = "Explainer", from_py_object)]
 #[derive(Clone)]
 struct PyExplainer {
     nsamples: Option<usize>,
@@ -778,7 +778,7 @@ enum CvSpec {
 
 /// Plain k-fold cross-validation.
 #[cfg(feature = "model-selection")]
-#[pyclass(name = "KFold")]
+#[pyclass(name = "KFold", from_py_object)]
 #[derive(Clone)]
 struct PyKFold {
     k: usize,
@@ -794,7 +794,7 @@ impl PyKFold {
 
 /// Stratified k-fold — preserves class balance across folds.
 #[cfg(feature = "model-selection")]
-#[pyclass(name = "StratifiedKFold")]
+#[pyclass(name = "StratifiedKFold", from_py_object)]
 #[derive(Clone)]
 struct PyStratifiedKFold {
     k: usize,

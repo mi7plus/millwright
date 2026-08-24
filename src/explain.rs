@@ -8,12 +8,15 @@
 //! ```no_run
 //! use millwright::prelude::*;
 //! # fn main() -> millwright::Result<()> {
+//! # #[cfg(feature = "smartcore-backend")]
+//! # {
 //! # let model: RandomForest = todo!();
 //! # let test: Frame = todo!();
 //! let explanation = model.explain(&Explainer::kernel(), &test)?;
 //! for (feature, importance) in explanation.importance() {
 //!     println!("{feature}: {importance:.3}");
 //! }
+//! # }
 //! # Ok(())
 //! # }
 //! ```

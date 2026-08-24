@@ -1,0 +1,5 @@
+[advisories]
+# quick-xml 0.39.4 is retained in Cargo.lock by an inactive optional dependency
+# and does not appear in Cargo's resolved graph for any target or feature set.
+# Keep these explicit until the upstream package drops that stale lock edge.
+ignore = ["RUSTSEC-2026-0194", "RUSTSEC-2026-0195"]

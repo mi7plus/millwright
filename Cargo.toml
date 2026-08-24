@@ -54,7 +54,7 @@ incremental-rs = { version = "=0.1.2", optional = true }
 polars = { version = "=0.55.2", default-features = false, features = ["csv", "parquet", "dtype-categorical", "dtype-datetime", "temporal", "is_in"], optional = true }
 
 # --- general infrastructure: caret ranges, reproduced via Cargo.lock ---
-pyo3 = { version = "0.24", features = ["extension-module", "abi3-py39"], optional = true }
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
 ndarray = { version = "0.16", optional = true }
 rayon = { version = "1", optional = true }
 # Decode a saved ONNX file back into the proto, to natively evaluate ONNX-ML ops

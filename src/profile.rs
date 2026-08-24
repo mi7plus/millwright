@@ -7,6 +7,8 @@
 //! use millwright::prelude::*;
 //!
 //! # fn main() -> millwright::Result<()> {
+//! # #[cfg(feature = "smartcore-backend")]
+//! # {
 //! let table = Table::from_csv("train.csv")?;
 //! let profile = Profile::of_with_target(&table, "target")?;
 //!
@@ -18,6 +20,7 @@
 //! // EDA drafts the starting pipeline — you just add the model.
 //! let pipe = profile.suggest_pipeline().estimator("rf", RandomForest::new());
 //! # let _ = pipe;
+//! # }
 //! # Ok(())
 //! # }
 //! ```
