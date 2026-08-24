@@ -3,7 +3,7 @@
 # a prompt) push, which triggers the crates.io + PyPI publish workflows.
 #
 #   Usage:  scripts/release.sh X.Y.Z
-#   (Windows: run from Git Bash — bash scripts/release.sh X.Y.Z)
+#   Windows: powershell -File scripts/release.ps1 X.Y.Z
 #
 # It bakes in the "bump the manifests BEFORE tagging" rule, so the tag always
 # matches Cargo.toml — the release-crate workflow rejects a mismatch. Uses GNU
@@ -25,10 +25,18 @@ git rev-parse -q --verify "refs/tags/$tag" >/dev/null && die "tag $tag already e
 
 echo "==> releasing $version"
 
+release_files=(Cargo.toml Cargo.lock pyproject.toml CHANGELOG.md index.html guide.html docs/index.html tests/python_smoke.py)
+committed=0
+cleanup() {
+  if [[ "$committed" == 0 ]]; then
+    git restore --staged --worktree -- "${release_files[@]}" 2>/dev/null || true
+  fi
+}
+trap cleanup ERR INT TERM
+
 # --- bump the package version (only the first top-level `version = ` line, so
 #     dependency pins like { version = "=0.6.10" } are left alone) ---
-sed -i -E "0,/^version = \".*\"/ s//version = \"$version\"/" Cargo.toml
-sed -i -E "0,/^version = \".*\"/ s//version = \"$version\"/" pyproject.toml
+python scripts/sync-version.py "$version"
 
 # --- roll the changelog: stamp [Unreleased] as this version, keep a fresh one ---
 sed -i -E "s/^## \[Unreleased\]/## [Unreleased]\n\n## [$version] - $(date +%F)/" CHANGELOG.md
@@ -39,9 +47,10 @@ echo "==> verifying package (cargo publish --dry-run)"
 cargo publish --dry-run --locked --allow-dirty >/dev/null
 
 # --- commit + tag ---
-git add Cargo.toml Cargo.lock pyproject.toml CHANGELOG.md
+git add "${release_files[@]}"
 git commit -q -m "Release $version"
 git tag "$tag"
+committed=1
 echo "==> committed and tagged $tag"
 
 # --- push (this publishes) ---

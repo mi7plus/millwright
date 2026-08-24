@@ -22,6 +22,7 @@
 //! # }
 //! ```
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use polars::prelude::*;
@@ -340,8 +341,15 @@ fn label_encode(values: &[Option<String>]) -> Vec<Option<f64>> {
     let mut distinct: Vec<&String> = values.iter().flatten().collect();
     distinct.sort();
     distinct.dedup();
-    let code = |v: &String| distinct.iter().position(|d| *d == v).unwrap() as f64;
-    values.iter().map(|o| o.as_ref().map(&code)).collect()
+    let codes: HashMap<&str, f64> = distinct
+        .iter()
+        .enumerate()
+        .map(|(index, value)| (value.as_str(), index as f64))
+        .collect();
+    values
+        .iter()
+        .map(|value| value.as_deref().and_then(|item| codes.get(item).copied()))
+        .collect()
 }
 
 #[cfg(test)]

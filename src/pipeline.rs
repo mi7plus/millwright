@@ -119,7 +119,9 @@ impl Estimator for Pipeline {
             }
             None => dataset.with_features(current),
         };
-        let (_, est) = self.estimator.as_mut().expect("checked above");
+        let (_, est) = self.estimator.as_mut().ok_or_else(|| {
+            Error::Pipeline("pipeline has no estimator; add one before fit".into())
+        })?;
         est.fit(&transformed)?;
         self.fitted = true;
         Ok(())

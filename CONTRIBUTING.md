@@ -45,7 +45,8 @@ cargo doc --no-deps --features full         # with RUSTDOCFLAGS="-D warnings"
 
 Maintainers: bump `Cargo.toml` + `pyproject.toml`, roll `CHANGELOG.md`, and tag
 `vX.Y.Z` — the workflows publish to crates.io and PyPI via OIDC. The helper
-`scripts/release.sh X.Y.Z` does the mechanical steps. See
+`scripts/release.sh X.Y.Z` (Linux/macOS) or `scripts/release.ps1 X.Y.Z`
+(Windows) does the mechanical steps. See
 [`RELEASING.md`](RELEASING.md).
 
 ## Scope & conduct

@@ -8,18 +8,23 @@ the same source.
 With `main` green and `CHANGELOG.md`'s `[Unreleased]` section filled in, run:
 
 ```bash
-bash scripts/release.sh 0.1.2
+# Linux/macOS
+bash scripts/release.sh 2.2.1
+
+# Windows PowerShell
+powershell -File scripts/release.ps1 2.2.1
 ```
 
-It bumps both manifests, rolls the changelog, syncs `Cargo.lock`, verifies the
-package, commits, tags `v0.1.2`, and (after a prompt) pushes — which triggers the
+It synchronizes both manifests and every public HTML version marker, rolls the
+changelog, syncs `Cargo.lock`, verifies the package, commits, tags `v2.2.1`, and
+(after a prompt) pushes — which triggers the
 publish workflows below. The rest of this file is the manual equivalent.
 
 ## Preflight (manual)
 
 1. `main` is green in CI and `CHANGELOG.md`'s `[Unreleased]` section is current.
-2. Bump the version in **both** `Cargo.toml` and `pyproject.toml`, move the
-   changelog's `[Unreleased]` entries under the new version, and commit.
+2. Run `python scripts/sync-version.py X.Y.Z`, move the changelog's
+   `[Unreleased]` entries under the new version, and commit.
 3. Prove the packaged crate builds exactly as crates.io will build it:
 
    ```bash

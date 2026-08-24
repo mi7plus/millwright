@@ -1,0 +1,34 @@
+[advisories]
+# Retained only by an inactive optional dependency; absent from every resolved
+# target/feature graph. Keep aligned with .cargo/audit.toml until upstream drops it.
+ignore = ["RUSTSEC-2026-0194", "RUSTSEC-2026-0195"]
+yanked = "deny"
+unused-ignored-advisory = "allow"
+
+[licenses]
+confidence-threshold = 0.8
+unused-allowed-license = "allow"
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MPL-2.0",
+  "OpenSSL",
+  "Unicode-3.0",
+  "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "simplest-path"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

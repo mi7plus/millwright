@@ -689,9 +689,8 @@ impl Transformer for ColumnTransformer {
             used.extend(cols.iter().cloned());
         }
         if self.passthrough {
-            for name in frame.columns() {
+            for (idx, name) in frame.columns().iter().enumerate() {
                 if !used.contains(name) {
-                    let idx = frame.column_index(name).unwrap();
                     out_names.push(name.clone());
                     out_cols.push(frame.column(idx));
                 }

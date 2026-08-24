@@ -8,6 +8,22 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [2.2.0] - 2026-08-24
 
+### Added
+- Complete Rust and Python ML lifecycle: typed ingest and EDA, preprocessing,
+  model selection and HPO, ensembles, diagnostics and explainability, ONNX
+  portability, serving, registry, drift monitoring, specialized estimators, and
+  AutoML.
+- Cross-platform Python abi3 wheels and synchronized crates.io/PyPI releases.
+
+### Changed
+- Hardened feature isolation, packaging, MSRV, SemVer, advisory, example, and
+  benchmark checks across the full CI matrix.
+- Updated the Python extension to PyO3 0.29 and documented the stable 2.2 API.
+
+### Security
+- Added explicit dependency advisory handling and removed vulnerable PyO3
+  releases from the resolved graph.
+
 ## [0.2.1] - 2026-08-23
 
 ### Added
