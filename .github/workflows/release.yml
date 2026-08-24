@@ -286,6 +286,7 @@ jobs:
     permissions:
       contents: write
       id-token: write
+      attestations: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
@@ -322,6 +323,14 @@ jobs:
         with:
           packages-dir: pypi-dist
           skip-existing: true
+      - name: verify signed release attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          for artifact in release-assets/*.whl release-assets/*.tar.gz release-assets/*.crate; do
+            gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY"
+          done
       - name: create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -330,7 +339,7 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+            echo "GitHub Release $GITHUB_REF_NAME already exists and is immutable; leaving its assets unchanged"
           else
             gh release create "$GITHUB_REF_NAME" release-assets/* \
               --verify-tag \

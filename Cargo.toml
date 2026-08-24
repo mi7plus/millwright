@@ -79,6 +79,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 criterion = "0.5"
+proptest = "1"
 
 [[bench]]
 name = "throughput"

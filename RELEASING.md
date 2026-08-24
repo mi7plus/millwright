@@ -98,6 +98,15 @@ The workflow builds Linux (x86_64 + aarch64), macOS (x86_64 + aarch64), and
 Windows x64 wheels plus an sdist. A manual run (Actions → release → Run
 workflow) performs every build and test gate *without* publishing.
 
+For the first tagged run after changing release automation, verify the complete
+tag-only path in the successful workflow log: both `actions/attest` steps and
+`verify signed release attestations` must pass. Independently verify a downloaded
+artifact with:
+
+```bash
+gh attestation verify path/to/artifact --repo mi7plus/millwright
+```
+
 To publish a single platform's wheel by hand instead (only installable on that
 OS), from a Developer PowerShell/Prompt with a Python toolchain:
 
@@ -109,6 +118,8 @@ maturin publish            # needs MATURIN_PYPI_TOKEN set
 
 - Release tags matching `v*` are immutable: the repository ruleset permits
   creation but blocks later updates and deletion.
+- GitHub Releases are immutable too: after publication, their assets and release
+  metadata cannot be replaced. Corrections require a new version.
 - The crate pins its engines to exact versions and commits `Cargo.lock`, so a
   publish is fully reproducible.
 - MSRV is declared in `Cargo.toml` (`rust-version`) and enforced by cargo for
