@@ -382,7 +382,7 @@ fn yeo_johnson(x: f64, lambda: f64) -> f64 {
 }
 
 /// Skewness of a slice (population), or 0 for degenerate input.
-fn skewness(vals: &[f64]) -> f64 {
+pub(super) fn skewness(vals: &[f64]) -> f64 {
     let n = vals.len() as f64;
     if n < 2.0 {
         return 0.0;
