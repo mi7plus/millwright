@@ -5,7 +5,7 @@ use super::*;
 // -------------------------------------------------------------------------
 
 impl Profile {
-    fn render_html(&self) -> String {
+    pub(super) fn render_html(&self) -> String {
         let o = &self.overview;
         let mut body = String::new();
 
