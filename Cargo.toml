@@ -67,7 +67,7 @@ axum = { version = "0.8", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
-sha2 = { version = "0.10", optional = true }
+sha2 = { version = "0.11", optional = true }
 fs2 = { version = "0.4", optional = true }
 # chronos-ts and incremental-rs pin ndarray 0.15, distinct from the 0.16 the
 # rest of the stack uses — the "two ndarray worlds" the design settles. Renamed
