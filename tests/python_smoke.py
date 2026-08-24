@@ -4,7 +4,7 @@ from pathlib import Path
 
 import millwright as mw
 
-assert mw.version() == "2.2.0"
+assert mw.version() == "2.2.1"
 
 frame = mw.Frame.from_rows([[0.0], [1.0], [9.0], [10.0]], ["x"])
 assert frame.shape == (4, 1)

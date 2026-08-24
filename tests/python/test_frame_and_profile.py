@@ -6,7 +6,7 @@ import millwright as mw
 
 
 def test_version_and_frame_protocol(binary_frame):
-    assert mw.version() == "2.2.0"
+    assert mw.version() == "2.2.1"
     assert binary_frame.shape == (4, 1)
     assert binary_frame.columns() == ["x"]
     assert len(binary_frame) == 4

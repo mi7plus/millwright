@@ -44,6 +44,7 @@ def sync(version: str, *, check: bool) -> list[str]:
         ("guide.html", r'Millwright v[^ ]+ guide has moved', f'Millwright v{version} guide has moved'),
         ("docs/index.html", r'millwright = \{ version = <span class="s">"[^"]+"</span>', f'millwright = {{ version = <span class="s">"{version}"</span>'),
         ("tests/python_smoke.py", r'assert mw\.version\(\) == "[^"]+"', f'assert mw.version() == "{version}"'),
+        ("tests/python/test_frame_and_profile.py", r'assert mw\.version\(\) == "[^"]+"', f'assert mw.version() == "{version}"'),
     ]
     stale = [path for path, pattern, value in checks if not replace(path, pattern, value, check=check)]
 
