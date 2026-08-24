@@ -29,9 +29,10 @@
 //! ```
 
 use crate::backends::smartcore::{Knn, LinearRegression, NaiveBayes, RandomForest, Svc};
-use crate::ensemble::Voting;
+use crate::ensemble::{Bagging, Boosting, Stacking, Voting};
 use crate::error::{Error, Result};
 use crate::frame::{Dataset, Frame};
+use crate::logistic::LogisticRegression;
 use crate::pipeline::Pipeline;
 use crate::rng::Rng;
 use crate::selection::{cross_val_score, CrossValidator, KFold, Metric, StratifiedKFold};
@@ -63,6 +64,15 @@ enum Task {
     Regressor,
 }
 
+/// Ensemble families that can compete with single pipelines during AutoML.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EnsembleKind {
+    Voting,
+    Bagging,
+    Boosting,
+    Stacking,
+}
+
 /// An automated model search.
 pub struct AutoML {
     task: Task,
@@ -71,6 +81,9 @@ pub struct AutoML {
     cv: Box<dyn CrossValidator>,
     seed: u64,
     ensemble: bool,
+    ensemble_size: usize,
+    ensemble_kinds: Vec<EnsembleKind>,
+    prefer_ensemble_on_tie: bool,
     parallel: bool,
 }
 
@@ -85,6 +98,14 @@ impl AutoML {
             cv: Box::new(StratifiedKFold::new(5)),
             seed: 0,
             ensemble: true,
+            ensemble_size: 3,
+            ensemble_kinds: vec![
+                EnsembleKind::Voting,
+                EnsembleKind::Bagging,
+                EnsembleKind::Boosting,
+                EnsembleKind::Stacking,
+            ],
+            prefer_ensemble_on_tie: false,
             parallel: false,
         }
     }
@@ -98,6 +119,13 @@ impl AutoML {
             cv: Box::new(KFold::new(5)),
             seed: 0,
             ensemble: true,
+            ensemble_size: 3,
+            ensemble_kinds: vec![
+                EnsembleKind::Voting,
+                EnsembleKind::Bagging,
+                EnsembleKind::Stacking,
+            ],
+            prefer_ensemble_on_tie: false,
             parallel: false,
         }
     }
@@ -125,6 +153,24 @@ impl AutoML {
     /// Disable auto-ensembling of the top candidates.
     pub fn no_ensemble(mut self) -> Self {
         self.ensemble = false;
+        self
+    }
+
+    /// Configure ensemble breadth/rounds. Values below two are raised to two.
+    pub fn ensemble_size(mut self, size: usize) -> Self {
+        self.ensemble_size = size.max(2);
+        self
+    }
+
+    /// Choose which ensemble families compete with individual pipelines.
+    pub fn ensemble_kinds(mut self, kinds: impl IntoIterator<Item = EnsembleKind>) -> Self {
+        self.ensemble_kinds = kinds.into_iter().collect();
+        self
+    }
+
+    /// Prefer an ensemble when it ties the best single-pipeline score.
+    pub fn prefer_ensemble_on_tie(mut self) -> Self {
+        self.prefer_ensemble_on_tie = true;
         self
     }
 
@@ -185,41 +231,54 @@ impl AutoML {
         }
         sort_board(&mut board, self.metric.greater_is_better());
 
-        // Auto-ensemble the top-k single pipelines and let it compete.
-        let mut ensemble_entry: Option<(String, f64)> = None;
-        if self.ensemble && board.len() >= 2 {
-            let k = board.len().min(3);
-            let mut vote = Voting::soft();
-            for (i, (_, _, pipe)) in board.iter().take(k).enumerate() {
-                vote = vote.add(format!("c{i}"), pipe.clone());
-            }
-            let score = cross_val_score(&vote, dataset, self.cv.as_ref(), self.metric)?;
-            ensemble_entry = Some((format!("ensemble(top-{k})"), score));
-        }
+        let ensemble_models = if self.ensemble && board.len() >= 2 {
+            build_ensembles(
+                self.task,
+                &board,
+                self.ensemble_size,
+                self.seed,
+                &self.ensemble_kinds,
+            )
+        } else {
+            Vec::new()
+        };
+        let ensemble_entries: Vec<(String, f64)> = ensemble_models
+            .iter()
+            .filter_map(|(label, model)| {
+                cross_val_score(model.as_ref(), dataset, self.cv.as_ref(), self.metric)
+                    .ok()
+                    .map(|score| (label.clone(), score))
+            })
+            .collect();
 
         // The leaderboard is every single candidate plus the ensemble entry.
         let mut leaderboard: Vec<(String, f64)> =
             board.iter().map(|(l, s, _)| (l.clone(), *s)).collect();
-        if let Some(e) = &ensemble_entry {
-            leaderboard.push(e.clone());
-        }
+        leaderboard.extend(ensemble_entries.iter().cloned());
         sort_pairs(&mut leaderboard, self.metric.greater_is_better());
+        if self.prefer_ensemble_on_tie {
+            leaderboard.sort_by(|a, b| {
+                cmp(a.1, b.1, self.metric.greater_is_better()).then_with(|| {
+                    b.0.starts_with("ensemble:")
+                        .cmp(&a.0.starts_with("ensemble:"))
+                })
+            });
+        }
 
         // Decide and refit the winner on the full dataset.
-        let ensemble_wins = ensemble_entry
-            .as_ref()
-            .map(|(_, s)| leaderboard[0].1 == *s && leaderboard[0].0.starts_with("ensemble"))
-            .unwrap_or(false);
+        let ensemble_wins = ensemble_entries
+            .iter()
+            .any(|(label, score)| label == &leaderboard[0].0 && *score == leaderboard[0].1);
 
         let (winner, label, score) = if ensemble_wins {
-            let k = board.len().min(3);
-            let mut vote = Voting::soft();
-            for (i, (_, _, pipe)) in board.iter().take(k).enumerate() {
-                vote = vote.add(format!("c{i}"), pipe.clone());
-            }
-            vote.fit(dataset)?;
+            let mut model = ensemble_models
+                .into_iter()
+                .find(|(label, _)| label == &leaderboard[0].0)
+                .expect("winning ensemble must exist")
+                .1;
+            model.fit(dataset)?;
             (
-                Winner::Ensemble(Box::new(vote)),
+                Winner::Ensemble(model),
                 leaderboard[0].0.clone(),
                 leaderboard[0].1,
             )
@@ -263,12 +322,25 @@ impl AutoMLResult {
         self.score
     }
 
-    /// The best single pipeline, if a pipeline (not an ensemble) won. Only a
-    /// single pipeline is ONNX-exportable.
+    /// The best single pipeline, if a pipeline (not an ensemble) won. Use
+    /// [`AutoMLResult::best_ensemble`] for an ensemble winner.
     pub fn best_pipeline(&self) -> Option<&Pipeline> {
         match &self.winner {
             Winner::Single(p) => Some(p),
             Winner::Ensemble(_) => None,
+        }
+    }
+
+    /// Whether an ensemble won the search.
+    pub fn is_ensemble(&self) -> bool {
+        matches!(&self.winner, Winner::Ensemble(_))
+    }
+
+    /// Return the fitted ensemble winner, if one won.
+    pub fn best_ensemble(&self) -> Option<&dyn Model> {
+        match &self.winner {
+            Winner::Ensemble(model) => Some(model.as_ref()),
+            Winner::Single(_) => None,
         }
     }
 
@@ -281,17 +353,78 @@ impl AutoMLResult {
         out
     }
 
-    /// Export the winner to ONNX, if it is a single pipeline.
+    /// Export the winner to ONNX when it and all of its components support it.
     #[cfg(feature = "onnx")]
     pub fn export_onnx(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
         use crate::onnx::ExportOnnx;
         match &self.winner {
             Winner::Single(p) => p.export_onnx(path),
-            Winner::Ensemble(_) => Err(Error::Backend(
-                "the AutoML winner is an ensemble; not ONNX-exportable".into(),
-            )),
+            Winner::Ensemble(model) => {
+                let proto = model.to_onnx_proto()?;
+                onnx_export_rs::graph_builder::save_to_file(&proto, path)
+                    .map_err(|e| Error::Backend(format!("ONNX save failed: {e}")))
+            }
         }
     }
+}
+
+fn build_ensembles(
+    task: Task,
+    board: &[(String, f64, Pipeline)],
+    requested_size: usize,
+    seed: u64,
+    kinds: &[EnsembleKind],
+) -> Vec<(String, Box<dyn Model>)> {
+    let size = requested_size.max(2);
+    let k = board.len().min(size);
+    let mut out: Vec<(String, Box<dyn Model>)> = Vec::new();
+    for kind in kinds {
+        match kind {
+            EnsembleKind::Voting => {
+                let soft = matches!(task, Task::Classifier)
+                    && board.iter().take(k).all(|(_, _, p)| p.supports_proba());
+                let mut model = if soft { Voting::soft() } else { Voting::hard() };
+                for (i, (_, _, pipeline)) in board.iter().take(k).enumerate() {
+                    model = model.add(format!("c{i}"), pipeline.clone());
+                }
+                out.push((
+                    format!(
+                        "ensemble:voting-{}(top-{k})",
+                        if soft { "soft" } else { "hard" }
+                    ),
+                    Box::new(model),
+                ));
+            }
+            EnsembleKind::Bagging => out.push((
+                format!("ensemble:bagging(n={size})"),
+                Box::new(
+                    Bagging::of(board[0].2.clone())
+                        .n_estimators(size)
+                        .seed(seed),
+                ),
+            )),
+            EnsembleKind::Boosting if matches!(task, Task::Classifier) => out.push((
+                format!("ensemble:boosting(n={size})"),
+                Box::new(
+                    Boosting::of(board[0].2.clone())
+                        .n_estimators(size)
+                        .seed(seed),
+                ),
+            )),
+            EnsembleKind::Stacking => {
+                let mut model = match task {
+                    Task::Classifier => Stacking::meta(LogisticRegression::new()),
+                    Task::Regressor => Stacking::meta(LinearRegression::new()),
+                };
+                for (i, (_, _, pipeline)) in board.iter().take(k).enumerate() {
+                    model = model.base(format!("c{i}"), pipeline.clone());
+                }
+                out.push((format!("ensemble:stacking(top-{k})"), Box::new(model)));
+            }
+            EnsembleKind::Boosting => {}
+        }
+    }
+    out
 }
 
 impl Predictor for AutoMLResult {
@@ -323,6 +456,13 @@ fn cmp(a: f64, b: f64, greater_is_better: bool) -> std::cmp::Ordering {
     } else {
         a.partial_cmp(&b).unwrap_or(Ordering::Equal)
     }
+}
+
+fn class_count(target: &[f64]) -> usize {
+    let mut classes: Vec<i64> = target.iter().map(|value| value.round() as i64).collect();
+    classes.sort_unstable();
+    classes.dedup();
+    classes.len()
 }
 
 /// The preprocessing pipeline EDA suggests for `dataset`, when the `eda` engine
@@ -377,8 +517,17 @@ fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
         ));
         out.push((
             format!("profile[{prep}] | svc(linear)"),
-            base.estimator("svc", Svc::linear()),
+            base.clone().estimator("svc", Svc::linear()),
         ));
+        if class_count(dataset.target()) == 2 {
+            for &l2 in &[0.0, 0.01, 0.1] {
+                out.push((
+                    format!("profile[{prep}] | logistic(l2={l2})"),
+                    base.clone()
+                        .estimator("logistic", LogisticRegression::new().l2(l2)),
+                ));
+            }
+        }
         return out;
     }
 
@@ -435,7 +584,22 @@ fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
             format!("{scaler} | svc(linear)"),
             pipe.estimator("svc", Svc::linear()),
         ));
+        if class_count(dataset.target()) == 2 {
+            for &l2 in &[0.0, 0.01, 0.1] {
+                let mut pipe = Pipeline::new();
+                pipe = match scaler {
+                    "standard" => pipe.step("scale", StandardScaler::new()),
+                    "minmax" => pipe.step("scale", MinMaxScaler::new()),
+                    _ => pipe,
+                };
+                out.push((
+                    format!("{scaler} | logistic(l2={l2})"),
+                    pipe.estimator("logistic", LogisticRegression::new().l2(l2)),
+                ));
+            }
+        }
     }
+
     out
 }
 
@@ -520,6 +684,56 @@ mod tests {
             "clusters should separate, got {preds:?} (winner: {})",
             result.best_label()
         );
+    }
+
+    #[test]
+    fn ensemble_winner_branch_is_explicit_and_inspectable() {
+        let result = AutoML::classifier()
+            .budget(Budget::trials(12))
+            .cv(StratifiedKFold::new(4))
+            .seed(1)
+            .ensemble_size(4)
+            .ensemble_kinds([EnsembleKind::Voting])
+            .prefer_ensemble_on_tie()
+            .fit(&two_class())
+            .unwrap();
+
+        assert!(result.is_ensemble(), "winner: {}", result.best_label());
+        assert!(result.best_ensemble().is_some());
+        assert!(result.best_pipeline().is_none());
+        assert!(result.best_label().starts_with("ensemble:voting-"));
+    }
+
+    #[cfg(feature = "onnx")]
+    #[test]
+    fn ensemble_winner_exports_to_onnx() {
+        let dataset = two_class();
+        let mut voting = Voting::soft()
+            .add("lr", LogisticRegression::new())
+            .add("lr_l2", LogisticRegression::new().l2(0.01));
+        voting.fit(&dataset).unwrap();
+        let result = AutoMLResult {
+            winner: Winner::Ensemble(Box::new(voting)),
+            label: "ensemble:voting-soft(top-2)".into(),
+            score: 1.0,
+            board: vec![("ensemble:voting-soft(top-2)".into(), 1.0)],
+        };
+        let path = std::env::temp_dir().join(format!(
+            "millwright-automl-ensemble-{}.onnx",
+            std::process::id()
+        ));
+        result.export_onnx(&path).unwrap();
+        let loaded = crate::onnx::InferenceModel::load(&path).unwrap();
+        let probe = Frame::from_rows(
+            vec![vec![0.1, 0.1], vec![9.2, 9.2]],
+            vec!["a".into(), "b".into()],
+        )
+        .unwrap();
+        assert_eq!(
+            loaded.predict(&probe).unwrap(),
+            result.predict(&probe).unwrap()
+        );
+        std::fs::remove_file(path).ok();
     }
 
     #[cfg(feature = "eda")]

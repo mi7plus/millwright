@@ -133,12 +133,50 @@ impl Estimator for Pipeline {
         Pipeline::set_param(self, name, value)
     }
 
+    fn supports_proba(&self) -> bool {
+        self.estimator
+            .as_ref()
+            .map(|(_, estimator)| estimator.supports_proba())
+            .unwrap_or(false)
+    }
+
+    fn predict_proba_dyn(&self, frame: &Frame) -> Result<Frame> {
+        if !self.fitted {
+            return Err(Error::NotFitted("Pipeline::predict_proba".into()));
+        }
+        let transformed = self.forward(frame)?;
+        let (_, estimator) = self.require_estimator()?;
+        estimator.predict_proba_dyn(&transformed)
+    }
+
     // The object-safe ONNX hook, so a boxed pipeline (e.g. a search winner held
     // as `Box<dyn Model>`) can still be exported. Delegates to the pipeline's
     // own `ExportOnnx` implementation.
     #[cfg(feature = "onnx")]
     fn to_onnx_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
         crate::onnx::ExportOnnx::to_onnx(self)
+    }
+
+    #[cfg(feature = "onnx")]
+    fn to_onnx_proba_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        let (_, estimator) = self.require_estimator()?;
+        let mut proto = estimator.to_onnx_proba_proto()?;
+        let prefixes: Vec<crate::onnx::Prefix> = self
+            .steps
+            .iter()
+            .map(|(name, transformer)| {
+                transformer.onnx_prefix().ok_or_else(|| {
+                    Error::Backend(format!(
+                        "pipeline step '{name}' ({}) is not ONNX-exportable",
+                        transformer.name()
+                    ))
+                })
+            })
+            .collect::<Result<_>>()?;
+        if !prefixes.is_empty() {
+            crate::onnx::prepend_prefixes(&mut proto, &prefixes)?;
+        }
+        Ok(proto)
     }
 }
 

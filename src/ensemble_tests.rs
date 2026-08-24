@@ -36,10 +36,14 @@ fn hard_voting_predicts_clusters() {
 
 #[test]
 fn soft_voting_exposes_probabilities() {
-    let mut v = Voting::soft().add("rf", RandomForest::new().n_trees(10));
+    let mut v = Voting::soft()
+        .add("lr1", crate::logistic::LogisticRegression::new())
+        .add("lr2", crate::logistic::LogisticRegression::new().l2(0.01));
     v.fit(&two_class()).unwrap();
     let proba = v.predict_proba(&probe()).unwrap();
     assert_eq!(proba.shape(), (2, 2)); // 2 rows, 2 classes
+    assert!(proba.get(0, 0) > 0.5);
+    assert!(proba.get(1, 1) > 0.5);
     assert_eq!(v.predict(&probe()).unwrap(), vec![0.0, 1.0]);
 }
 
@@ -84,4 +88,52 @@ fn stacking_predicts_clusters() {
         .cv(StratifiedKFold::new(3));
     s.fit(&two_class()).unwrap();
     assert_eq!(s.predict(&probe()).unwrap(), vec![0.0, 1.0]);
+}
+
+#[cfg(all(feature = "onnx", feature = "model-selection"))]
+#[test]
+fn every_ensemble_family_round_trips_through_onnx() {
+    use crate::logistic::LogisticRegression;
+    use crate::onnx::InferenceModel;
+    use crate::selection::StratifiedKFold;
+
+    let dataset = two_class();
+    let probe = probe();
+    let mut models: Vec<Box<dyn Model>> = vec![
+        Box::new(
+            Voting::soft()
+                .add("lr", LogisticRegression::new())
+                .add("lr_l2", LogisticRegression::new().l2(0.01)),
+        ),
+        Box::new(
+            Bagging::of(LogisticRegression::new())
+                .n_estimators(3)
+                .seed(4),
+        ),
+        Box::new(
+            Boosting::of(RandomForest::new().n_trees(1).max_depth(1))
+                .n_estimators(4)
+                .seed(4),
+        ),
+        Box::new(
+            Stacking::meta(LogisticRegression::new())
+                .base("lr", LogisticRegression::new())
+                .base("lr_l2", LogisticRegression::new().l2(0.01))
+                .cv(StratifiedKFold::new(3)),
+        ),
+    ];
+
+    for (index, model) in models.iter_mut().enumerate() {
+        model.fit(&dataset).unwrap();
+        let expected = model.predict(&probe).unwrap();
+        let proto = model.to_onnx_proto().unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "millwright-ensemble-{}-{index}.onnx",
+            std::process::id()
+        ));
+        onnx_export_rs::graph_builder::save_to_file(&proto, &path).unwrap();
+        let loaded = InferenceModel::load(&path).unwrap();
+        assert_eq!(loaded.predict(&probe).unwrap(), expected);
+        std::fs::remove_file(path).ok();
+    }
 }

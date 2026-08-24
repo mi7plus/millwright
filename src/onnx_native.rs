@@ -22,6 +22,11 @@ struct Mat {
 }
 
 enum Op {
+    Add {
+        a: String,
+        b: String,
+        out: String,
+    },
     Sub {
         a: String,
         b: String,
@@ -30,6 +35,29 @@ enum Op {
     Div {
         a: String,
         b: String,
+        out: String,
+    },
+    Mul {
+        a: String,
+        b: String,
+        out: String,
+    },
+    MatMul {
+        a: String,
+        b: String,
+        out: String,
+    },
+    Sigmoid {
+        input: String,
+        out: String,
+    },
+    GreaterOrEqual {
+        input: String,
+        value: f32,
+        out: String,
+    },
+    Identity {
+        input: String,
         out: String,
     },
     Tree {
@@ -115,6 +143,11 @@ impl NativeGraph {
             let out = |i: usize| n.output.get(i).cloned().unwrap_or_default();
             let inp = |i: usize| n.input.get(i).cloned().unwrap_or_default();
             match n.op_type.as_str() {
+                "Add" => ops.push(Op::Add {
+                    a: inp(0),
+                    b: inp(1),
+                    out: out(0),
+                }),
                 "Sub" => ops.push(Op::Sub {
                     a: inp(0),
                     b: inp(1),
@@ -123,6 +156,35 @@ impl NativeGraph {
                 "Div" => ops.push(Op::Div {
                     a: inp(0),
                     b: inp(1),
+                    out: out(0),
+                }),
+                "Mul" => ops.push(Op::Mul {
+                    a: inp(0),
+                    b: inp(1),
+                    out: out(0),
+                }),
+                "MatMul" => ops.push(Op::MatMul {
+                    a: inp(0),
+                    b: inp(1),
+                    out: out(0),
+                }),
+                "Sigmoid" => ops.push(Op::Sigmoid {
+                    input: inp(0),
+                    out: out(0),
+                }),
+                "GreaterOrEqual" => {
+                    let value = raw
+                        .get(n.input[1].as_str())
+                        .and_then(|tensor| read_floats(tensor).first().copied())
+                        .unwrap_or(f32::NAN);
+                    ops.push(Op::GreaterOrEqual {
+                        input: inp(0),
+                        value,
+                        out: out(0),
+                    });
+                }
+                "Identity" => ops.push(Op::Identity {
+                    input: inp(0),
                     out: out(0),
                 }),
                 "TreeEnsembleRegressor" => ops.push(Op::Tree {
@@ -218,6 +280,10 @@ impl NativeGraph {
 
         for op in &self.ops {
             match op {
+                Op::Add { a, b, out } => {
+                    let value = broadcast(&get(&env, a)?, &get(&env, b)?, |x, y| x + y);
+                    env.insert(out.as_str(), value);
+                }
                 Op::Sub { a, b, out } => {
                     let m = broadcast(&get(&env, a)?, &get(&env, b)?, |x, y| x - y);
                     env.insert(out.as_str(), m);
@@ -225,6 +291,54 @@ impl NativeGraph {
                 Op::Div { a, b, out } => {
                     let m = broadcast(&get(&env, a)?, &get(&env, b)?, |x, y| x / y);
                     env.insert(out.as_str(), m);
+                }
+                Op::Mul { a, b, out } => {
+                    let value = broadcast(&get(&env, a)?, &get(&env, b)?, |x, y| x * y);
+                    env.insert(out.as_str(), value);
+                }
+                Op::MatMul { a, b, out } => {
+                    let left = get(&env, a)?;
+                    let right = get(&env, b)?;
+                    if left.cols != right.rows {
+                        return Err(Error::Shape(format!(
+                            "native ONNX MatMul mismatch: {}x{} by {}x{}",
+                            left.rows, left.cols, right.rows, right.cols
+                        )));
+                    }
+                    let mut data = vec![0.0; left.rows * right.cols];
+                    for row in 0..left.rows {
+                        for col in 0..right.cols {
+                            for inner in 0..left.cols {
+                                data[row * right.cols + col] += left.data[row * left.cols + inner]
+                                    * right.data[inner * right.cols + col];
+                            }
+                        }
+                    }
+                    env.insert(
+                        out.as_str(),
+                        Mat {
+                            rows: left.rows,
+                            cols: right.cols,
+                            data,
+                        },
+                    );
+                }
+                Op::Sigmoid { input, out } => {
+                    let mut value = get(&env, input)?;
+                    for item in &mut value.data {
+                        *item = 1.0 / (1.0 + (-*item).exp());
+                    }
+                    env.insert(out.as_str(), value);
+                }
+                Op::GreaterOrEqual { input, value, out } => {
+                    let mut matrix = get(&env, input)?;
+                    for item in &mut matrix.data {
+                        *item = (*item >= *value) as u8 as f32;
+                    }
+                    env.insert(out.as_str(), matrix);
+                }
+                Op::Identity { input, out } => {
+                    env.insert(out.as_str(), get(&env, input)?);
                 }
                 Op::Tree { input, out, ens } => {
                     let x = get(&env, input)?;

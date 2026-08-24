@@ -19,8 +19,7 @@ fn brief_ensemble_snippet_compiles_and_runs() {
 
     let vote = Voting::soft()
         .add("lr", LogisticRegression::new())
-        .add("rf", RandomForest::new())
-        .add("svc", Svc::rbf());
+        .add("lr_l2", LogisticRegression::new().l2(0.01));
 
     let stack = Stacking::meta(LogisticRegression::new())
         .base("rf", RandomForest::new())
