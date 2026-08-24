@@ -80,6 +80,7 @@ tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 criterion = "0.5"
 proptest = "1"
+tempfile = "3"
 
 [[bench]]
 name = "throughput"

@@ -38,7 +38,8 @@ Automated by **`release.yml`**, which publishes on a `v*` tag via **Trusted
 Publishing (OIDC)** — no token is stored anywhere. It first verifies that the
 tagged commit is on `main`, has a successful CI run, has synchronized version
 markers, and has a dated changelog section. It then dry-runs the crate package,
-builds every wheel and the sdist, and installs and tests every native wheel.
+builds every wheel and the sdist with pinned Rust and Python versions, and
+installs and tests every native wheel.
 Neither registry is touched until every gate passes.
 
 If the tag arrives while CI is still running, release preflight waits for it for
@@ -96,12 +97,13 @@ git tag vX.Y.Z && git push --tags
 
 The workflow builds Linux (x86_64 + aarch64), macOS (x86_64 + aarch64), and
 Windows x64 wheels plus an sdist. A manual run (Actions → release → Run
-workflow) performs every build and test gate *without* publishing.
+workflow) performs every build, test, SBOM, provenance-attestation, and
+attestation-verification gate *without* publishing.
 
-For the first tagged run after changing release automation, verify the complete
-tag-only path in the successful workflow log: both `actions/attest` steps and
-`verify signed release attestations` must pass. Independently verify a downloaded
-artifact with:
+For the first tagged run after changing publication automation, verify the
+tag-only registry and GitHub Release steps in the successful workflow log. The
+artifact and attestation path is exercised by every manual run. Independently
+verify a downloaded artifact with:
 
 ```bash
 gh attestation verify path/to/artifact --repo mi7plus/millwright
@@ -120,8 +122,10 @@ maturin publish            # needs MATURIN_PYPI_TOKEN set
   creation but blocks later updates and deletion.
 - GitHub Releases are immutable too: after publication, their assets and release
   metadata cannot be replaced. Corrections require a new version.
-- The crate pins its engines to exact versions and commits `Cargo.lock`, so a
-  publish is fully reproducible.
+- The crate pins its engines to exact versions, commits `Cargo.lock`, and pins
+  release Rust/Python versions. GitHub-hosted runner image revisions can still
+  change beneath their dated labels, so releases are dependency-resolved and
+  tightly controlled rather than guaranteed byte-for-byte reproducible.
 - MSRV is declared in `Cargo.toml` (`rust-version`) and enforced by cargo for
   consumers; it is dictated by transitive engine deps, so expect it to rise over
   time.

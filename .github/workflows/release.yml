@@ -12,6 +12,11 @@ permissions:
   contents: read
   actions: read
 
+env:
+  RELEASE_RUST: "1.98.0"
+  RELEASE_PYTHON: "3.14"
+  RELEASE_MATURIN: "v1.14.1"
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -19,15 +24,17 @@ concurrency:
 jobs:
   preflight:
     name: release preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: "3.x"
+          python-version: ${{ env.RELEASE_PYTHON }}
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
 
       - name: verify synchronized package and documentation versions
         run: python scripts/sync-version.py --check
@@ -90,10 +97,12 @@ jobs:
   crate-package:
     name: crate package dry-run
     needs: preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
       # Deliberately no rust-cache: cargo publish builds under target/package,
       # whose transient contents make the cache action's post-step emit ENOENT.
       - run: cargo publish --locked --dry-run
@@ -112,7 +121,7 @@ jobs:
       matrix:
         include:
           - name: linux-x86_64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             target: x86_64
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
@@ -122,11 +131,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: "3.x"
+          python-version: ${{ env.RELEASE_PYTHON }}
       - name: build native wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           target: ${{ matrix.target }}
+          rust-toolchain: ${{ env.RELEASE_RUST }}
+          maturin-version: ${{ env.RELEASE_MATURIN }}
           manylinux: auto
           args: --release --locked --out dist
       - name: install and test the release wheel
@@ -143,17 +154,19 @@ jobs:
   windows-wheel:
     name: wheel (windows-x64)
     needs: preflight
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: "3.x"
+          python-version: ${{ env.RELEASE_PYTHON }}
           architecture: x64
       - name: build native wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           target: x64
+          rust-toolchain: ${{ env.RELEASE_RUST }}
+          maturin-version: ${{ env.RELEASE_MATURIN }}
           args: --release --locked --out dist
       - name: install and test the release wheel
         run: |
@@ -184,11 +197,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: "3.x"
+          python-version: ${{ env.RELEASE_PYTHON }}
       - name: build native wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           target: ${{ matrix.target }}
+          rust-toolchain: ${{ env.RELEASE_RUST }}
+          maturin-version: ${{ env.RELEASE_MATURIN }}
           args: --release --locked --out dist
       - name: install and test the release wheel
         run: |
@@ -204,13 +219,15 @@ jobs:
   sdist:
     name: source distribution
     needs: preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: build sdist
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           command: sdist
+          rust-toolchain: ${{ env.RELEASE_RUST }}
+          maturin-version: ${{ env.RELEASE_MATURIN }}
           args: --out dist
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -221,7 +238,7 @@ jobs:
   release-metadata:
     name: release metadata
     needs: [crate-package, linux-wheels, windows-wheel, macos-wheels, sdist]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
@@ -256,7 +273,6 @@ jobs:
           cd release-assets
           sha256sum * > SHA256SUMS
       - name: attest release provenance
-        if: startsWith(github.ref, 'refs/tags/')
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: |
@@ -264,7 +280,6 @@ jobs:
             release-assets/*.tar.gz
             release-assets/*.crate
       - name: attest release SBOM
-        if: startsWith(github.ref, 'refs/tags/')
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: |
@@ -272,6 +287,23 @@ jobs:
             release-assets/*.tar.gz
             release-assets/*.crate
           sbom-path: release-assets/millwright-${{ github.ref_name }}.spdx.json
+      - name: verify generated attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          for artifact in release-assets/*.whl release-assets/*.tar.gz release-assets/*.crate; do
+            verified=false
+            for attempt in 1 2 3 4 5; do
+              if gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY"; then
+                verified=true
+                break
+              fi
+              echo "attestation is not queryable yet (attempt $attempt/5); waiting 5 seconds"
+              sleep 5
+            done
+            test "$verified" = true
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-assets
@@ -282,7 +314,7 @@ jobs:
     name: publish coordinated release
     if: startsWith(github.ref, 'refs/tags/')
     needs: release-metadata
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       id-token: write
@@ -290,6 +322,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ env.RELEASE_RUST }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: release-assets

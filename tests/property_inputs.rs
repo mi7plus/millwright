@@ -1,5 +1,6 @@
 use millwright::frame::Frame;
 use proptest::prelude::*;
+use std::io::Write;
 
 proptest! {
     #[test]
@@ -28,5 +29,38 @@ proptest! {
             .map(|i| format!("f{i}"))
             .collect();
         prop_assert!(Frame::from_rows(rows, columns).is_err());
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    #[test]
+    fn arbitrary_csv_text_never_panics(text in any::<String>()) {
+        let mut file = tempfile::NamedTempFile::new().expect("temporary CSV");
+        file.write_all(text.as_bytes()).expect("write temporary CSV");
+        let _ = Frame::from_csv(file.path());
+    }
+
+    #[cfg(feature = "onnx")]
+    #[test]
+    fn arbitrary_onnx_bytes_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
+        use millwright::onnx::InferenceModel;
+
+        let mut file = tempfile::NamedTempFile::new().expect("temporary ONNX");
+        file.write_all(&bytes).expect("write temporary ONNX");
+        let _ = InferenceModel::load(file.path());
+    }
+
+    #[cfg(feature = "registry")]
+    #[test]
+    fn registry_rejects_path_traversal_names(suffix in "[A-Za-z0-9_-]{1,32}") {
+        use millwright::registry::Registry;
+
+        let root = tempfile::tempdir().expect("temporary registry");
+        let registry = Registry::local(root.path());
+        let malicious = format!("../{suffix}");
+        prop_assert!(registry.versions(&malicious).is_err());
+        prop_assert!(!root.path().parent().unwrap().join(&suffix).exists());
     }
 }

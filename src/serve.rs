@@ -263,6 +263,16 @@ mod tests {
     use crate::onnx::ExportOnnx;
     use crate::traits::Estimator;
     use axum::body::Body;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn arbitrary_request_bytes_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..2048)) {
+            let _ = serde_json::from_slice::<PredictRequest>(&bytes);
+        }
+    }
     use axum::http::Request;
     use http_body_util::BodyExt;
     use tower::ServiceExt;
