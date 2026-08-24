@@ -1,6 +1,6 @@
 # The Millwright Guide
 
-*A unified ML framework for Rust — ten crates, one lifecycle.*
+*A unified ML framework for Rust — fit. predict. serve. watch.*
 
 The full hands-on tutorial now lives as a browsable, multi-page site:
 

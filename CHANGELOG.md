@@ -125,9 +125,8 @@ All notable changes to Millwright are recorded here. The format follows
   feature-matrix CI (fmt, clippy `-D warnings`, docs, matrix, OS, examples,
   benches, publish dry-run, wheel).
 - `selection.rs` split into `selection/{scoring,cv,search}`.
-- MSRV is **1.95** (dep-dictated — `sysinfo` via tract, and polars); enforced by
-  cargo via `rust-version` rather than a dedicated CI job (which would break on
-  every transitive bump). The default install needs 1.85.
+- MSRV is **1.95** (dep-dictated — `sysinfo` via tract, and polars), declared
+  through `rust-version` and exercised by a dedicated CI job.
 - De-staled the crate and module docs (no more "Phase 0 · the spine").
 
 ### Fixed

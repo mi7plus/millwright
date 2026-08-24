@@ -37,9 +37,25 @@ type ScNb = GaussianNB<f64, u64, DenseMatrix<f64>, Vec<u64>>;
 type ScSvcParams = SVCParameters<f64, i64, DenseMatrix<f64>, Vec<i64>>;
 type ScMultiSvc = MultiClassSVC<'static, f64, i64, DenseMatrix<f64>, Vec<i64>>;
 
-/// Round a target vector to integer class labels.
-fn int_labels(dataset: &Dataset) -> Vec<i64> {
-    dataset.target().iter().map(|v| v.round() as i64).collect()
+/// Validate and convert a target vector to integer class labels.
+fn int_labels(dataset: &Dataset) -> Result<Vec<i64>> {
+    dataset
+        .target()
+        .iter()
+        .map(|&value| {
+            if value.is_finite()
+                && value.fract() == 0.0
+                && value >= i64::MIN as f64
+                && value <= i64::MAX as f64
+            {
+                Ok(value as i64)
+            } else {
+                Err(Error::Shape(format!(
+                    "classifier targets must be finite integer labels; got {value}"
+                )))
+            }
+        })
+        .collect()
 }
 
 /// Convert a [`Frame`] to smartcore's native `DenseMatrix<f64>`.
@@ -99,7 +115,7 @@ impl Estimator for RandomForest {
 
     fn fit(&mut self, dataset: &Dataset) -> Result<()> {
         let x = as_dense(dataset.features())?;
-        let y: Vec<i64> = dataset.target().iter().map(|v| v.round() as i64).collect();
+        let y = int_labels(dataset)?;
 
         let mut params = RandomForestClassifierParameters::default().with_n_trees(self.n_trees);
         if let Some(d) = self.max_depth {
@@ -227,7 +243,7 @@ impl Estimator for Knn {
 
     fn fit(&mut self, dataset: &Dataset) -> Result<()> {
         let x = as_dense(dataset.features())?;
-        let y = int_labels(dataset);
+        let y = int_labels(dataset)?;
         let params = KNNClassifierParameters::default().with_k(self.k);
         let model = KNNClassifier::fit(&x, &y, params)
             .map_err(|e| Error::Backend(format!("Knn fit failed: {e}")))?;
@@ -284,11 +300,14 @@ impl Estimator for NaiveBayes {
     fn fit(&mut self, dataset: &Dataset) -> Result<()> {
         let x = as_dense(dataset.features())?;
         // smartcore's Gaussian NB wants unsigned class labels.
-        let y: Vec<u64> = dataset
-            .target()
-            .iter()
-            .map(|v| v.round().max(0.0) as u64)
-            .collect();
+        let y: Vec<u64> = int_labels(dataset)?
+            .into_iter()
+            .map(|label| {
+                u64::try_from(label).map_err(|_| {
+                    Error::Shape("NaiveBayes targets must be non-negative integer labels".into())
+                })
+            })
+            .collect::<Result<_>>()?;
         let model = GaussianNB::fit(&x, &y, Default::default())
             .map_err(|e| Error::Backend(format!("NaiveBayes fit failed: {e}")))?;
         self.model = Some(Arc::new(model));
@@ -418,7 +437,7 @@ impl Estimator for Svc {
 
     fn fit(&mut self, dataset: &Dataset) -> Result<()> {
         let x = as_dense(dataset.features())?;
-        let y = int_labels(dataset);
+        let y = int_labels(dataset)?;
         let params = ScSvcParams::default().with_c(self.c);
         let params = match self.kernel {
             SvcKernel::Linear => params.with_kernel(Kernels::linear()),

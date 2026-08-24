@@ -73,23 +73,23 @@ jobs:
           - { name: "spine", features: "--no-default-features --features smartcore-backend" }
           # The default install.
           - { name: "default", features: "" }
-          # Each feature added on top of default — the realistic install shape,
-          # and enough to catch a feature that fails to compile in isolation.
-          - { name: "eda", features: "--features eda" }
-          - { name: "calibration", features: "--features calibration" }
-          - { name: "anomaly", features: "--features anomaly" }
-          - { name: "linfa", features: "--features linfa-backend" }
-          - { name: "hpo", features: "--features hpo" }
-          - { name: "diagnostics", features: "--features diagnostics" }
-          - { name: "explain", features: "--features explain" }
-          - { name: "viz", features: "--features viz" }
-          - { name: "onnx", features: "--features onnx" }
-          - { name: "registry", features: "--features registry" }
-          - { name: "monitor", features: "--features monitor" }
-          - { name: "serve", features: "--features serve" }
-          - { name: "timeseries", features: "--features timeseries" }
-          - { name: "incremental", features: "--features incremental" }
-          - { name: "automl", features: "--features automl" }
+          # Each feature in isolation. Dependencies declared by that feature are
+          # enabled transitively; unrelated defaults cannot hide a bad edge.
+          - { name: "eda", features: "--no-default-features --features eda" }
+          - { name: "calibration", features: "--no-default-features --features calibration" }
+          - { name: "anomaly", features: "--no-default-features --features anomaly" }
+          - { name: "linfa", features: "--no-default-features --features linfa-backend" }
+          - { name: "hpo", features: "--no-default-features --features hpo" }
+          - { name: "diagnostics", features: "--no-default-features --features diagnostics" }
+          - { name: "explain", features: "--no-default-features --features explain" }
+          - { name: "viz", features: "--no-default-features --features viz" }
+          - { name: "onnx", features: "--no-default-features --features onnx" }
+          - { name: "registry", features: "--no-default-features --features registry" }
+          - { name: "monitor", features: "--no-default-features --features monitor" }
+          - { name: "serve", features: "--no-default-features --features serve" }
+          - { name: "timeseries", features: "--no-default-features --features timeseries" }
+          - { name: "incremental", features: "--no-default-features --features incremental" }
+          - { name: "automl", features: "--no-default-features --features automl" }
           # Everything at once — the superset build, including both ndarray worlds.
           - { name: "full", features: "--features full" }
     steps:
@@ -114,6 +114,33 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
+
+  msrv:
+    name: minimum Rust 1.95
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.95
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --locked --all-targets --features full
+
+  supply-chain:
+    name: advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
+
+  semver:
+    name: public API compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-semver-checks --locked
+      - run: cargo semver-checks check-release
 
   # Compile and *run* the examples (the `test` jobs only build the library and
   # its tests), plus a compile-check of the benchmarks. The declared MSRV
@@ -165,4 +192,4 @@ jobs:
       - run: pip install maturin
       - run: maturin build --locked --release
       - run: pip install --find-links target/wheels millwright
-      - run: python -c "import millwright; print('millwright', getattr(millwright, '__version__', 'ok'))"
+      - run: python tests/python_smoke.py

@@ -16,11 +16,13 @@
 //! # }
 //! ```
 
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
@@ -43,14 +45,27 @@ struct PredictResponse {
 
 struct AppState {
     model: InferenceModel,
+    limits: Limits,
+    permits: Arc<tokio::sync::Semaphore>,
+    timeout: Duration,
     #[cfg(feature = "monitor")]
     monitor: Option<Arc<DriftMonitor>>,
+}
+
+#[derive(Clone, Copy)]
+struct Limits {
+    rows: usize,
+    columns: usize,
+    body_bytes: usize,
 }
 
 /// An inference server bound to a model and a route.
 pub struct Server {
     model: InferenceModel,
     route: String,
+    limits: Limits,
+    max_concurrency: usize,
+    timeout: Duration,
     #[cfg(feature = "monitor")]
     monitor: Option<Arc<DriftMonitor>>,
 }
@@ -61,6 +76,13 @@ impl Server {
         Ok(Server {
             model: InferenceModel::load(path)?,
             route: "/predict".to_string(),
+            limits: Limits {
+                rows: 10_000,
+                columns: 10_000,
+                body_bytes: 8 * 1024 * 1024,
+            },
+            max_concurrency: 64,
+            timeout: Duration::from_secs(30),
             #[cfg(feature = "monitor")]
             monitor: None,
         })
@@ -84,6 +106,28 @@ impl Server {
         self
     }
 
+    /// Set request limits for rows, columns per row, and JSON body bytes.
+    pub fn request_limits(mut self, rows: usize, columns: usize, body_bytes: usize) -> Self {
+        self.limits = Limits {
+            rows: rows.max(1),
+            columns: columns.max(1),
+            body_bytes: body_bytes.max(1),
+        };
+        self
+    }
+
+    /// Limit concurrent inference requests (default 64).
+    pub fn max_concurrency(mut self, requests: usize) -> Self {
+        self.max_concurrency = requests.max(1);
+        self
+    }
+
+    /// Set the maximum time a request waits for inference (default 30 seconds).
+    pub fn inference_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
     /// Attach a drift monitor; predictions feed it and `GET /metrics` reports it.
     #[cfg(feature = "monitor")]
     pub fn with_monitor(mut self, monitor: DriftMonitor) -> Self {
@@ -96,10 +140,16 @@ impl Server {
         let route = self.route.clone();
         let state = Arc::new(AppState {
             model: self.model,
+            limits: self.limits,
+            permits: Arc::new(tokio::sync::Semaphore::new(self.max_concurrency)),
+            timeout: self.timeout,
             #[cfg(feature = "monitor")]
             monitor: self.monitor,
         });
-        let router = Router::new().route(&route, post(predict_handler));
+        let router = Router::new()
+            .route(&route, post(predict_handler))
+            .route("/healthz", get(|| async { StatusCode::OK }))
+            .layer(DefaultBodyLimit::max(self.limits.body_bytes));
         #[cfg(feature = "monitor")]
         let router = router.route("/metrics", axum::routing::get(metrics_handler));
         router.with_state(state)
@@ -107,11 +157,20 @@ impl Server {
 
     /// Bind `addr` and serve until the process ends.
     pub async fn serve(self, addr: &str) -> Result<()> {
+        self.serve_with_shutdown(addr, std::future::pending()).await
+    }
+
+    /// Bind and serve until `shutdown` resolves, then drain active connections.
+    pub async fn serve_with_shutdown<F>(self, addr: &str, shutdown: F) -> Result<()>
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
         let router = self.router();
         let listener = tokio::net::TcpListener::bind(addr)
             .await
             .map_err(|e| Error::Backend(format!("bind {addr}: {e}")))?;
         axum::serve(listener, router)
+            .with_graceful_shutdown(shutdown)
             .await
             .map_err(|e| Error::Backend(format!("serve: {e}")))
     }
@@ -124,7 +183,13 @@ async fn predict_handler(
     if req.rows.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "no rows provided".into()));
     }
+    if req.rows.len() > state.limits.rows {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, "too many rows".into()));
+    }
     let ncols = req.rows[0].len();
+    if ncols > state.limits.columns {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, "too many columns".into()));
+    }
     if ncols == 0 || req.rows.iter().any(|r| r.len() != ncols) {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -135,10 +200,32 @@ async fn predict_handler(
     let frame = Frame::from_rows(req.rows, columns)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
-    let predictions = state
-        .model
-        .predict(&frame)
-        .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+    let permit = state.permits.clone().acquire_owned().await.map_err(|_| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "server is shutting down".into(),
+        )
+    })?;
+    let inference_state = Arc::clone(&state);
+    let inference = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        inference_state.model.predict(&frame)
+    });
+    let predictions = tokio::time::timeout(state.timeout, inference)
+        .await
+        .map_err(|_| (StatusCode::GATEWAY_TIMEOUT, "inference timed out".into()))?
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "inference worker failed".into(),
+            )
+        })?
+        .map_err(|_| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "model could not process this input".into(),
+            )
+        })?;
 
     #[cfg(feature = "monitor")]
     if let Some(monitor) = &state.monitor {
@@ -155,9 +242,12 @@ async fn metrics_handler(
     let Some(monitor) = &state.monitor else {
         return Err((StatusCode::NOT_FOUND, "no monitor attached".into()));
     };
-    let status = monitor
-        .report()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let status = monitor.report().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "monitor unavailable".into(),
+        )
+    })?;
     Ok(Json(serde_json::json!({
         "drifted": status.drifted,
         "psi": status.psi,
@@ -241,6 +331,45 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn health_and_request_limits_are_enforced() {
+        let path = linear_onnx("limits");
+        let app = Server::from_onnx(&path)
+            .unwrap()
+            .request_limits(1, 2, 1024)
+            .router();
+
+        let health = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/healthz")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(health.status(), StatusCode::OK);
+
+        let body = serde_json::to_vec(&serde_json::json!({
+            "rows": [[1.0, 2.0], [3.0, 4.0]]
+        }))
+        .unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/predict")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
         let _ = std::fs::remove_file(&path);
     }
 }

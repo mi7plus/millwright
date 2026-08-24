@@ -6,6 +6,7 @@
 //! predictions; [`DriftMonitor::report`] scores them against the reference and
 //! reports the population-stability index and whether it has drifted.
 
+use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use driftwatch::{EqualWidthBinning, MetricKind, PredictionDriftMonitor};
@@ -30,19 +31,39 @@ pub struct DriftStatus {
 /// A PSI drift monitor over a model's prediction stream.
 pub struct DriftMonitor {
     inner: PredictionDriftMonitor,
-    live: Mutex<Vec<f64>>,
+    live: Mutex<LiveWindow>,
+    capacity: usize,
+}
+
+struct LiveWindow {
+    values: VecDeque<f64>,
+    observed: usize,
 }
 
 impl DriftMonitor {
     /// Build a monitor from the reference (training) predictions, binned with
     /// the standard 10-bin PSI convention.
     pub fn psi(reference_predictions: &[f64]) -> Result<Self> {
+        Self::psi_with_capacity(reference_predictions, 10_000)
+    }
+
+    /// Build a PSI monitor retaining at most `capacity` recent predictions.
+    pub fn psi_with_capacity(reference_predictions: &[f64], capacity: usize) -> Result<Self> {
+        if capacity == 0 {
+            return Err(Error::Backend(
+                "drift monitor capacity must be positive".into(),
+            ));
+        }
         let inner =
             PredictionDriftMonitor::new(reference_predictions, EqualWidthBinning::default())
                 .map_err(drift_err)?;
         Ok(DriftMonitor {
             inner,
-            live: Mutex::new(Vec::new()),
+            live: Mutex::new(LiveWindow {
+                values: VecDeque::with_capacity(capacity),
+                observed: 0,
+            }),
+            capacity,
         })
     }
 
@@ -57,19 +78,32 @@ impl DriftMonitor {
 
     /// Record a batch of live predictions.
     pub fn observe(&self, predictions: &[f64]) {
-        self.live
+        let mut live = self
+            .live
             .lock()
-            .expect("monitor lock")
-            .extend_from_slice(predictions);
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        live.observed = live.observed.saturating_add(predictions.len());
+        for &prediction in predictions {
+            if live.values.len() == self.capacity {
+                live.values.pop_front();
+            }
+            live.values.push_back(prediction);
+        }
     }
 
     /// Score the accumulated live predictions against the reference.
     pub fn report(&self) -> Result<DriftStatus> {
-        let live = self.live.lock().expect("monitor lock").clone();
-        if live.is_empty() {
+        let live = self
+            .live
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if live.values.is_empty() {
             return Ok(DriftStatus::default());
         }
-        let report = self.inner.check(&live).map_err(drift_err)?;
+        let values: Vec<f64> = live.values.iter().copied().collect();
+        let observed = live.observed;
+        drop(live);
+        let report = self.inner.check(&values).map_err(drift_err)?;
         let psi = report
             .features
             .first()
@@ -80,7 +114,7 @@ impl DriftMonitor {
         Ok(DriftStatus {
             drifted,
             psi,
-            observed: live.len(),
+            observed,
         })
     }
 }
@@ -108,5 +142,14 @@ mod tests {
         let shifted_report = shifted.report().unwrap();
         assert!(shifted_report.drifted, "psi = {}", shifted_report.psi);
         assert!(shifted_report.psi > stable_report.psi);
+    }
+
+    #[test]
+    fn retains_a_bounded_window_but_counts_all_observations() {
+        let reference: Vec<f64> = (0..100).map(|i| i as f64).collect();
+        let monitor = DriftMonitor::psi_with_capacity(&reference, 10).unwrap();
+        monitor.observe(&(0..100).map(|i| i as f64).collect::<Vec<_>>());
+        assert_eq!(monitor.report().unwrap().observed, 100);
+        assert_eq!(monitor.live.lock().unwrap().values.len(), 10);
     }
 }

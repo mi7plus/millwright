@@ -1,9 +1,8 @@
 //! Evaluation reports — the metrics half of "trust the model, not just run it".
 //!
 //! [`Evaluate::evaluate`] runs a model over a labelled [`Dataset`] and bundles
-//! the appropriate metrics into a [`Report`]. The task (classification vs.
-//! regression) is inferred from the target: an all-integral target is treated
-//! as class labels; anything else as regression.
+//! the appropriate metrics into a [`Report`]. Prefer [`Report::for_task`] when
+//! the task is known; [`Report::new`] keeps a conservative inference shortcut.
 //!
 //! This is core (no extra dependencies). The richer, model-specific diagnostics
 //! — OLS residual tests, SHAP, report figures — live in the `diagnostics`,
@@ -40,6 +39,11 @@ impl Report {
         } else {
             Task::Regression
         };
+        Self::for_task(y_true, y_pred, task)
+    }
+
+    /// Build a report for an explicit task, avoiding target-type inference.
+    pub fn for_task(y_true: &[f64], y_pred: &[f64], task: Task) -> Report {
         let metrics = match task {
             Task::Classification => classification_metrics(y_true, y_pred),
             Task::Regression => regression_metrics(y_true, y_pred),
@@ -81,7 +85,12 @@ impl fmt::Display for Report {
 }
 
 fn is_classification(y: &[f64]) -> bool {
-    !y.is_empty() && y.iter().all(|v| v.is_finite() && v.fract() == 0.0)
+    if y.is_empty() || !y.iter().all(|v| v.is_finite() && v.fract() == 0.0) {
+        return false;
+    }
+    let unique: BTreeSet<i64> = y.iter().map(|v| *v as i64).collect();
+    let limit = 20usize.min((y.len() as f64).sqrt().ceil().max(2.0) as usize);
+    unique.len() <= limit
 }
 
 fn regression_metrics(y_true: &[f64], y_pred: &[f64]) -> Vec<(String, f64)> {
@@ -174,6 +183,12 @@ pub trait Evaluate: Predictor {
         let preds = self.predict(dataset.features())?;
         Ok(Report::new(dataset.target(), &preds))
     }
+
+    /// Predict and score with an explicit task.
+    fn evaluate_as(&self, dataset: &Dataset, task: Task) -> Result<Report> {
+        let preds = self.predict(dataset.features())?;
+        Ok(Report::for_task(dataset.target(), &preds, task))
+    }
 }
 
 impl<T: Predictor + ?Sized> Evaluate for T {}
@@ -207,5 +222,15 @@ mod tests {
         let p = vec![0.0, 1.0, 0.0, 1.0];
         let r = Report::new(&t, &p);
         assert_eq!(r.get("accuracy"), Some(0.5));
+    }
+
+    #[test]
+    fn integer_valued_regression_is_not_assumed_to_be_classification() {
+        let y: Vec<f64> = (0..100).map(|v| v as f64).collect();
+        assert_eq!(Report::new(&y, &y).task(), Task::Regression);
+        assert_eq!(
+            Report::for_task(&[1.0, 2.0], &[1.0, 2.0], Task::Regression).task(),
+            Task::Regression
+        );
     }
 }

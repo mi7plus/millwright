@@ -1,6 +1,6 @@
 //! # Millwright
 //!
-//! A unified ML framework for Rust — *ten crates, one lifecycle.*
+//! A unified ML framework for Rust — *fit. predict. serve. watch.*
 //!
 //! Millwright assembles proven Rust crates into one composable ML lifecycle —
 //! ingest and profile data, build and tune pipelines, evaluate and explain

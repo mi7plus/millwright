@@ -28,7 +28,7 @@
 //! # }
 //! ```
 
-use crate::backends::smartcore::{LinearRegression, RandomForest};
+use crate::backends::smartcore::{Knn, LinearRegression, NaiveBayes, RandomForest, Svc};
 use crate::ensemble::Voting;
 use crate::error::{Error, Result};
 use crate::frame::{Dataset, Frame};
@@ -336,7 +336,7 @@ fn seeded_base(dataset: &Dataset) -> Option<Pipeline> {
     Some(profile.suggest_pipeline())
 }
 
-/// Preprocessing × RandomForest-hyperparameter candidates.
+/// Preprocessing × classifier-family × hyperparameter candidates.
 #[cfg_attr(not(feature = "eda"), allow(unused_variables))]
 fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
     use crate::transform::{MinMaxScaler, StandardScaler};
@@ -365,6 +365,20 @@ fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
                 ));
             }
         }
+        for &k in &[3usize, 5, 9] {
+            out.push((
+                format!("profile[{prep}] | knn(k={k})"),
+                base.clone().estimator("knn", Knn::k(k)),
+            ));
+        }
+        out.push((
+            format!("profile[{prep}] | naive_bayes"),
+            base.clone().estimator("nb", NaiveBayes::new()),
+        ));
+        out.push((
+            format!("profile[{prep}] | svc(linear)"),
+            base.estimator("svc", Svc::linear()),
+        ));
         return out;
     }
 
@@ -389,6 +403,38 @@ fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
                 out.push((format!("{scaler} | rf(trees={n}, depth={depth_s})"), pipe));
             }
         }
+        for &k in &[3usize, 5, 9] {
+            let mut pipe = Pipeline::new();
+            pipe = match scaler {
+                "standard" => pipe.step("scale", StandardScaler::new()),
+                "minmax" => pipe.step("scale", MinMaxScaler::new()),
+                _ => pipe,
+            };
+            out.push((
+                format!("{scaler} | knn(k={k})"),
+                pipe.estimator("knn", Knn::k(k)),
+            ));
+        }
+        let mut pipe = Pipeline::new();
+        pipe = match scaler {
+            "standard" => pipe.step("scale", StandardScaler::new()),
+            "minmax" => pipe.step("scale", MinMaxScaler::new()),
+            _ => pipe,
+        };
+        out.push((
+            format!("{scaler} | naive_bayes"),
+            pipe.estimator("nb", NaiveBayes::new()),
+        ));
+        let mut pipe = Pipeline::new();
+        pipe = match scaler {
+            "standard" => pipe.step("scale", StandardScaler::new()),
+            "minmax" => pipe.step("scale", MinMaxScaler::new()),
+            _ => pipe,
+        };
+        out.push((
+            format!("{scaler} | svc(linear)"),
+            pipe.estimator("svc", Svc::linear()),
+        ));
     }
     out
 }

@@ -2,7 +2,6 @@
 
 use ndarray::Array1;
 
-use model_selection_rs::scoring::smartcore_adapter::SmartcoreF1;
 use model_selection_rs::scoring::{
     Accuracy as MsAccuracy, MeanAbsoluteError, MeanSquaredError, R2Score, RootMeanSquaredError,
     Scorer,
@@ -29,7 +28,7 @@ impl Metric {
     fn scorer(&self) -> Box<dyn Scorer> {
         match self {
             Metric::Accuracy => Box::new(MsAccuracy),
-            Metric::F1 => Box::new(SmartcoreF1::default()),
+            Metric::F1 => unreachable!("F1 is implemented locally"),
             Metric::Mae => Box::new(MeanAbsoluteError),
             Metric::Mse => Box::new(MeanSquaredError),
             Metric::Rmse => Box::new(RootMeanSquaredError),
@@ -39,23 +38,31 @@ impl Metric {
 
     /// Whether a larger score is an improvement.
     pub fn greater_is_better(&self) -> bool {
-        self.scorer().greater_is_better()
+        matches!(self, Metric::Accuracy | Metric::F1 | Metric::R2)
     }
 
     /// Score aligned truth / prediction vectors.
     pub fn score(&self, y_true: &[f64], y_pred: &[f64]) -> f64 {
+        if matches!(self, Metric::F1) {
+            let (mut tp, mut fp, mut false_negative) = (0.0, 0.0, 0.0);
+            for (&truth, &prediction) in y_true.iter().zip(y_pred) {
+                match (truth == 1.0, prediction == 1.0) {
+                    (true, true) => tp += 1.0,
+                    (false, true) => fp += 1.0,
+                    (true, false) => false_negative += 1.0,
+                    (false, false) => {}
+                }
+            }
+            let denominator = 2.0 * tp + fp + false_negative;
+            return if denominator == 0.0 {
+                0.0
+            } else {
+                2.0 * tp / denominator
+            };
+        }
         let t = Array1::from(y_true.to_vec());
         let p = Array1::from(y_pred.to_vec());
-        let s = self.scorer().score(&t, &p);
-        // A degenerate fold (e.g. an all-negative prediction) leaves smartcore's
-        // F1 evaluating precision·recall / (precision + recall) = 0/0 = NaN. A
-        // single NaN fold poisons the cross-validated mean and the search's
-        // best-score comparison. Follow scikit-learn's convention (`zero_division=0`):
-        // an undefined F1 is 0.0, keeping CV scores finite and comparable.
-        if matches!(self, Metric::F1) && !s.is_finite() {
-            return 0.0;
-        }
-        s
+        self.scorer().score(&t, &p)
     }
 }
 
@@ -73,7 +80,7 @@ mod tests {
     #[test]
     fn f1_of_a_degenerate_fold_is_zero_not_nan() {
         // No true positives (all-negative prediction) -> precision + recall = 0.
-        // smartcore returns 0/0 = NaN; we clamp to sklearn's 0.0.
+        // Undefined F1 follows sklearn's `zero_division=0` convention.
         let all_negative = Metric::F1.score(&[0., 1., 0., 1.], &[0., 0., 0., 0.]);
         assert_eq!(
             all_negative, 0.0,

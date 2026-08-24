@@ -7,7 +7,7 @@
 [![downloads](https://img.shields.io/crates/d/millwright.svg)](https://crates.io/crates/millwright)
 [![license](https://img.shields.io/crates/l/millwright.svg)](LICENSE)
 
-A unified ML framework for Rust — *ten crates, one lifecycle.*
+A unified ML framework for Rust — *fit. predict. serve. watch.*
 
 - **Tutorial:** the hands-on docs site at <https://millwright-rs.dev/docs/>
   (source in [`docs/`](docs/index.html); a short [`GUIDE.md`](GUIDE.md) has the
@@ -15,11 +15,8 @@ A unified ML framework for Rust — *ten crates, one lifecycle.*
 - **Contributing:** see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - **Design brief:** the *why*, at **<https://millwright-rs.dev/>**.
 
-> *"Ten crates"* is the ecosystem this project assembles —
-> `plotters-statistical`, `model-selection-rs`, `imbalance-rs`,
-> `regression-diagnostics`, `hyperopt-rs`, `shap-rs`, `driftwatch`,
-> `onnx-export-rs`, `incremental-rs`, `chronos-ts` — riding the established
-> `smartcore` / `linfa` / `polars` stack.
+It assembles focused Rust ML engines behind one stable data model and trait
+contract, so training, evaluation, export, serving, and monitoring compose.
 
 ## Status: Phases 0–8 — done
 
