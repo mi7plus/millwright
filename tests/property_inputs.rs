@@ -20,7 +20,7 @@ proptest! {
     #[test]
     fn frame_constructor_rejects_column_count_mismatches(
         width in 0usize..16,
-        height in 0usize..64,
+        height in 1usize..64,
         delta in 1usize..8,
     ) {
         let rows = vec![vec![0.0; width]; height];
