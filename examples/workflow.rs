@@ -30,10 +30,10 @@ fn main() -> Result<()> {
     println!("  best F1 = {:.3}", search.best_score());
     println!("  predictions = {:?}", search.predict(&probe)?);
 
-    // 3 — ensembles: soft voting across forests, plus a stacked blend.
+    // 3 — ensembles: probability-averaged soft voting, plus a stacked blend.
     let mut vote = Voting::soft()
-        .add("rf_shallow", RandomForest::new().max_depth(2))
-        .add("rf_deep", RandomForest::new().max_depth(8));
+        .add("lr", LogisticRegression::new())
+        .add("lr_l2", LogisticRegression::new().l2(0.01));
     vote.fit(&train)?;
     println!("soft-vote predictions = {:?}", vote.predict(&probe)?);
 

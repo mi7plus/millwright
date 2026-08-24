@@ -6,6 +6,25 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-08-24
+
+### Added
+- AutoML ensemble-family selection across voting, bagging, boosting, and
+  stacking, with configurable ensemble size and explicit winner introspection.
+- Portable ONNX graph composition and round-trip inference for every generated
+  ensemble family, including probability-producing logistic pipelines.
+
+### Changed
+- Soft voting now averages genuine model probabilities instead of fractions of
+  hard class predictions.
+- AutoML can prefer an ensemble on tied scores and exposes ensemble winners via
+  `is_ensemble()` and `best_ensemble()`.
+
+### Fixed
+- AutoML ensemble winners can now be exported to ONNX and served through the
+  same inference runtime as single pipelines.
+- Added deterministic coverage of the ensemble-winner and ONNX export branches.
+
 ## [2.2.1] - 2026-08-24
 
 ### Added

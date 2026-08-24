@@ -1,8 +1,7 @@
 //! A native binary logistic-regression classifier — the framework's first model
 //! that produces *real* class probabilities.
 //!
-//! Unlike the smartcore `RandomForest` (whose per-tree internals aren't exposed,
-//! so a soft vote can only average vote shares), [`LogisticRegression`]
+//! Unlike classifiers that only expose hard labels, [`LogisticRegression`]
 //! implements [`ProbaPredictor`] with a genuine `sigmoid` probability. It is
 //! pure core — no backend feature required — and fits by gradient descent on the
 //! log-loss with optional L2, standardizing features internally so it converges
@@ -87,6 +86,98 @@ impl LogisticRegression {
             .sum::<f64>()
             + self.bias;
         sigmoid(z)
+    }
+
+    #[cfg(feature = "onnx")]
+    fn onnx_model(&self, probabilities: bool) -> Result<onnx_export_rs::proto::ModelProto> {
+        use ndarray::{Array1, Array2};
+        use onnx_export_rs::graph_builder::{
+            assemble_model, int_attribute, make_node, make_tensor, make_value_info, Dimension,
+        };
+        use onnx_export_rs::proto::GraphProto;
+
+        if !self.fitted {
+            return Err(Error::NotFitted("LogisticRegression::to_onnx".into()));
+        }
+        let width = self.weights.len();
+        let mut initializers = vec![
+            make_tensor(
+                "mean",
+                &Array1::from_iter(self.mean.iter().map(|v| *v as f32)).into_dyn(),
+            ),
+            make_tensor(
+                "std",
+                &Array1::from_iter(self.std.iter().map(|v| *v as f32)).into_dyn(),
+            ),
+            make_tensor(
+                "weights",
+                &Array2::from_shape_vec(
+                    (width, 1),
+                    self.weights.iter().map(|v| *v as f32).collect(),
+                )
+                .map_err(|e| Error::Backend(e.to_string()))?
+                .into_dyn(),
+            ),
+            make_tensor("bias", &Array1::from(vec![self.bias as f32]).into_dyn()),
+        ];
+        let mut nodes = vec![
+            make_node("Sub", ["input", "mean"], ["centered"], vec![]),
+            make_node("Div", ["centered", "std"], ["scaled"], vec![]),
+            make_node("MatMul", ["scaled", "weights"], ["linear"], vec![]),
+            make_node("Add", ["linear", "bias"], ["logit"], vec![]),
+            make_node("Sigmoid", ["logit"], ["p1"], vec![]),
+        ];
+        if probabilities {
+            initializers.push(make_tensor("one", &Array1::from(vec![1.0]).into_dyn()));
+            nodes.push(make_node("Sub", ["one", "p1"], ["p0"], vec![]));
+            nodes.push(make_node(
+                "Concat",
+                ["p0", "p1"],
+                ["output"],
+                vec![int_attribute("axis", 1)],
+            ));
+        } else {
+            let c0 = self.classes[0] as f32;
+            let delta = (self.classes[1] - self.classes[0]) as f32;
+            initializers.extend([
+                make_tensor("threshold", &Array1::from(vec![0.5]).into_dyn()),
+                make_tensor("class0", &Array1::from(vec![c0]).into_dyn()),
+                make_tensor("class_delta", &Array1::from(vec![delta]).into_dyn()),
+            ]);
+            nodes.extend([
+                make_node("GreaterOrEqual", ["p1", "threshold"], ["positive"], vec![]),
+                make_node(
+                    "Cast",
+                    ["positive"],
+                    ["positive_f"],
+                    vec![int_attribute("to", 1)],
+                ),
+                make_node("Mul", ["positive_f", "class_delta"], ["offset"], vec![]),
+                make_node("Add", ["offset", "class0"], ["output"], vec![]),
+            ]);
+        }
+        Ok(assemble_model(
+            GraphProto {
+                node: nodes,
+                name: "millwright_logistic".into(),
+                initializer: initializers,
+                doc_string: String::new(),
+                input: vec![make_value_info(
+                    "input",
+                    &[Dimension::Symbolic("batch".into()), Dimension::Fixed(width)],
+                )],
+                output: vec![make_value_info(
+                    "output",
+                    &[
+                        Dimension::Symbolic("batch".into()),
+                        Dimension::Fixed(if probabilities { 2 } else { 1 }),
+                    ],
+                )],
+                value_info: vec![],
+            },
+            13,
+            8,
+        ))
     }
 }
 
@@ -179,6 +270,24 @@ impl Estimator for LogisticRegression {
             }
         }
         Ok(())
+    }
+
+    fn supports_proba(&self) -> bool {
+        true
+    }
+
+    fn predict_proba_dyn(&self, frame: &Frame) -> Result<Frame> {
+        <Self as ProbaPredictor>::predict_proba(self, frame)
+    }
+
+    #[cfg(feature = "onnx")]
+    fn to_onnx_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        self.onnx_model(false)
+    }
+
+    #[cfg(feature = "onnx")]
+    fn to_onnx_proba_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        self.onnx_model(true)
     }
 }
 

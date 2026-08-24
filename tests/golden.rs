@@ -227,8 +227,8 @@ fn golden_pipeline_labels() {
 fn golden_soft_vote_labels() {
     let (train, probe) = two_clusters();
     let mut vote = Voting::soft()
-        .add("rf_shallow", RandomForest::new().max_depth(2))
-        .add("rf_deep", RandomForest::new().max_depth(8));
+        .add("lr", LogisticRegression::new())
+        .add("lr_l2", LogisticRegression::new().l2(0.01));
     vote.fit(&train).unwrap();
     close_vec(&vote.predict(&probe).unwrap(), &[0.0, 1.0]);
 }

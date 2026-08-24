@@ -56,7 +56,7 @@ rf.fit(&amp;train)?;
       <div class="head col">
         <div class="eyebrow">Calibration</div>
         <h2>Probabilities that mean what they say.</h2>
-        <p class="muted">With <code class="inl">calibration</code>, wrap any <code class="inl">ProbaPredictor</code> (a <code class="inl">LogisticRegression</code>, or a soft vote's class-vote shares) in a <code class="inl">CalibratedClassifier</code> — itself a <code class="inl">ProbaPredictor</code>, so it composes. Fit the calibrator on a held-out set.</p>
+        <p class="muted">With <code class="inl">calibration</code>, wrap any <code class="inl">ProbaPredictor</code> (a <code class="inl">LogisticRegression</code>, or a probability-averaged soft vote) in a <code class="inl">CalibratedClassifier</code> — itself a <code class="inl">ProbaPredictor</code>, so it composes. Fit the calibrator on a held-out set.</p>
       </div>
 <pre><span class="k">let mut</span> clf = <span class="f">LogisticRegression</span>::new();
 clf.fit(&amp;train)?;

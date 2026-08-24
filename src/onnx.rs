@@ -209,6 +209,409 @@ pub(crate) fn prepend_prefixes(proto: &mut ModelProto, prefixes: &[Prefix]) -> R
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum EnsembleAggregation<'a> {
+    Mean,
+    HardVote {
+        classes: &'a [i64],
+        weights: &'a [f64],
+    },
+    SoftVote {
+        classes: &'a [i64],
+        weights: &'a [f64],
+    },
+}
+
+#[cfg(feature = "ensemble")]
+fn namespace_graph(
+    proto: ModelProto,
+    prefix: &str,
+    replacement_input: &str,
+) -> Result<(
+    Vec<onnx_export_rs::proto::NodeProto>,
+    Vec<onnx_export_rs::proto::TensorProto>,
+    String,
+)> {
+    let graph = proto
+        .graph
+        .ok_or_else(|| Error::Backend("ensemble member ONNX model has no graph".into()))?;
+    let input = graph
+        .input
+        .first()
+        .map(|value| value.name.clone())
+        .ok_or_else(|| Error::Backend("ensemble member ONNX model has no input".into()))?;
+    let output = graph
+        .output
+        .first()
+        .map(|value| value.name.clone())
+        .ok_or_else(|| Error::Backend("ensemble member ONNX model has no output".into()))?;
+    let rename = |name: &str| {
+        if name == input {
+            replacement_input.to_string()
+        } else {
+            format!("{prefix}{name}")
+        }
+    };
+    let mut nodes = graph.node;
+    for node in &mut nodes {
+        node.input = node.input.iter().map(|name| rename(name)).collect();
+        node.output = node.output.iter().map(|name| rename(name)).collect();
+        if !node.name.is_empty() {
+            node.name = format!("{prefix}{}", node.name);
+        }
+    }
+    let mut initializers = graph.initializer;
+    for initializer in &mut initializers {
+        initializer.name = rename(&initializer.name);
+    }
+    Ok((nodes, initializers, rename(&output)))
+}
+
+#[cfg(feature = "ensemble")]
+pub(crate) fn combine_onnx(
+    protos: Vec<ModelProto>,
+    aggregation: EnsembleAggregation<'_>,
+) -> Result<ModelProto> {
+    use ndarray::Array1;
+    use onnx_export_rs::graph_builder::{assemble_model, make_node};
+    use onnx_export_rs::proto::GraphProto;
+
+    if protos.is_empty() {
+        return Err(Error::Backend("cannot export an empty ensemble".into()));
+    }
+    let input_info = protos[0]
+        .graph
+        .as_ref()
+        .and_then(|graph| graph.input.first())
+        .cloned()
+        .ok_or_else(|| Error::Backend("ensemble member ONNX model has no input".into()))?;
+    let opset = protos
+        .iter()
+        .flat_map(|proto| proto.opset_import.iter())
+        .filter(|opset| opset.domain.is_empty())
+        .map(|opset| opset.version)
+        .max()
+        .unwrap_or(13)
+        .max(13);
+    let ir = protos
+        .iter()
+        .map(|proto| proto.ir_version)
+        .max()
+        .unwrap_or(8);
+    let mut nodes = Vec::new();
+    let mut initializers = Vec::new();
+    let mut outputs = Vec::new();
+    for (index, proto) in protos.into_iter().enumerate() {
+        let (mut member_nodes, mut member_initializers, output) =
+            namespace_graph(proto, &format!("mw_m{index}_"), "mw_input")?;
+        nodes.append(&mut member_nodes);
+        initializers.append(&mut member_initializers);
+        outputs.push(output);
+    }
+
+    let scalar =
+        |name: &str, value: f64| make_tensor(name, &Array1::from(vec![value as f32]).into_dyn());
+    fn add_chain(
+        nodes: &mut Vec<onnx_export_rs::proto::NodeProto>,
+        terms: Vec<String>,
+        stem: &str,
+    ) -> Result<String> {
+        let mut iter = terms.into_iter();
+        let mut current = iter
+            .next()
+            .ok_or_else(|| Error::Backend("ensemble aggregation has no terms".into()))?;
+        for (index, term) in iter.enumerate() {
+            let output = format!("mw_{stem}_sum{index}");
+            nodes.push(make_node(
+                "Add",
+                [current.as_str(), term.as_str()],
+                [output.as_str()],
+                vec![],
+            ));
+            current = output;
+        }
+        Ok(current)
+    }
+
+    let final_output = match aggregation {
+        EnsembleAggregation::Mean => {
+            let count = outputs.len();
+            let sum = add_chain(&mut nodes, outputs, "mean")?;
+            if count == 1 {
+                sum
+            } else {
+                initializers.push(scalar("mw_divisor", count as f64));
+                nodes.push(make_node(
+                    "Div",
+                    [sum.as_str(), "mw_divisor"],
+                    ["mw_output"],
+                    vec![],
+                ));
+                "mw_output".into()
+            }
+        }
+        EnsembleAggregation::HardVote { classes, weights } => {
+            if outputs.len() != weights.len() || classes.is_empty() {
+                return Err(Error::Backend(
+                    "invalid hard-voting ONNX aggregation".into(),
+                ));
+            }
+            let mut class_scores = Vec::new();
+            for (class_index, class) in classes.iter().enumerate() {
+                let class_name = format!("mw_class_{class_index}");
+                initializers.push(scalar(&class_name, *class as f64));
+                let mut terms = Vec::new();
+                for (member_index, output) in outputs.iter().enumerate() {
+                    let equal = format!("mw_eq_{class_index}_{member_index}");
+                    let cast = format!("mw_cast_{class_index}_{member_index}");
+                    let weighted = format!("mw_weighted_{class_index}_{member_index}");
+                    let weight = format!("mw_weight_{member_index}");
+                    if class_index == 0 {
+                        initializers.push(scalar(&weight, weights[member_index]));
+                    }
+                    nodes.push(make_node(
+                        "Equal",
+                        [output.as_str(), class_name.as_str()],
+                        [equal.as_str()],
+                        vec![],
+                    ));
+                    nodes.push(make_node(
+                        "Cast",
+                        [equal.as_str()],
+                        [cast.as_str()],
+                        vec![int_attribute("to", FLOAT as i64)],
+                    ));
+                    nodes.push(make_node(
+                        "Mul",
+                        [cast.as_str(), weight.as_str()],
+                        [weighted.as_str()],
+                        vec![],
+                    ));
+                    terms.push(weighted);
+                }
+                class_scores.push(add_chain(
+                    &mut nodes,
+                    terms,
+                    &format!("class{class_index}"),
+                )?);
+            }
+            nodes.push(make_node(
+                "Concat",
+                class_scores,
+                ["mw_scores"],
+                vec![int_attribute("axis", 1)],
+            ));
+            nodes.push(make_node(
+                "ArgMax",
+                ["mw_scores"],
+                ["mw_index"],
+                vec![int_attribute("axis", 1), int_attribute("keepdims", 1)],
+            ));
+            nodes.push(make_node(
+                "Cast",
+                ["mw_index"],
+                ["mw_index_f"],
+                vec![int_attribute("to", FLOAT as i64)],
+            ));
+            map_class_index(&mut nodes, &mut initializers, classes, "mw_index_f")
+        }
+        EnsembleAggregation::SoftVote { classes, weights } => {
+            if outputs.len() != weights.len() || classes.is_empty() {
+                return Err(Error::Backend(
+                    "invalid soft-voting ONNX aggregation".into(),
+                ));
+            }
+            let mut terms = Vec::new();
+            for (index, output) in outputs.iter().enumerate() {
+                let weight = format!("mw_weight_{index}");
+                let weighted = format!("mw_weighted_{index}");
+                initializers.push(scalar(&weight, weights[index]));
+                nodes.push(make_node(
+                    "Mul",
+                    [output.as_str(), weight.as_str()],
+                    [weighted.as_str()],
+                    vec![],
+                ));
+                terms.push(weighted);
+            }
+            let scores = add_chain(&mut nodes, terms, "soft")?;
+            nodes.push(make_node(
+                "ArgMax",
+                [scores.as_str()],
+                ["mw_index"],
+                vec![int_attribute("axis", 1), int_attribute("keepdims", 1)],
+            ));
+            nodes.push(make_node(
+                "Cast",
+                ["mw_index"],
+                ["mw_index_f"],
+                vec![int_attribute("to", FLOAT as i64)],
+            ));
+            map_class_index(&mut nodes, &mut initializers, classes, "mw_index_f")
+        }
+    };
+    let mut input = input_info;
+    input.name = "mw_input".into();
+    let output_info = make_value_info(
+        final_output.clone(),
+        &[Dimension::Symbolic("batch".into()), Dimension::Fixed(1)],
+    );
+    Ok(assemble_model(
+        GraphProto {
+            node: nodes,
+            name: "millwright_ensemble".into(),
+            initializer: initializers,
+            doc_string: String::new(),
+            input: vec![input],
+            output: vec![output_info],
+            value_info: vec![],
+        },
+        opset,
+        ir,
+    ))
+}
+
+#[cfg(feature = "ensemble")]
+fn map_class_index(
+    nodes: &mut Vec<onnx_export_rs::proto::NodeProto>,
+    initializers: &mut Vec<onnx_export_rs::proto::TensorProto>,
+    classes: &[i64],
+    index: &str,
+) -> String {
+    use ndarray::Array1;
+    let mut terms = Vec::new();
+    for (position, class) in classes.iter().enumerate() {
+        let position_name = format!("mw_position_{position}");
+        let class_name = format!("mw_label_{position}");
+        let equal = format!("mw_index_eq_{position}");
+        let cast = format!("mw_index_cast_{position}");
+        let term = format!("mw_label_term_{position}");
+        initializers.push(make_tensor(
+            &position_name,
+            &Array1::from(vec![position as f32]).into_dyn(),
+        ));
+        initializers.push(make_tensor(
+            &class_name,
+            &Array1::from(vec![*class as f32]).into_dyn(),
+        ));
+        nodes.push(make_node(
+            "Equal",
+            [index, position_name.as_str()],
+            [equal.as_str()],
+            vec![],
+        ));
+        nodes.push(make_node(
+            "Cast",
+            [equal.as_str()],
+            [cast.as_str()],
+            vec![int_attribute("to", FLOAT as i64)],
+        ));
+        nodes.push(make_node(
+            "Mul",
+            [cast.as_str(), class_name.as_str()],
+            [term.as_str()],
+            vec![],
+        ));
+        terms.push(term);
+    }
+    let mut current = terms[0].clone();
+    for (i, term) in terms.iter().skip(1).enumerate() {
+        let output = if i + 2 == terms.len() {
+            "mw_output".into()
+        } else {
+            format!("mw_label_sum{i}")
+        };
+        nodes.push(make_node(
+            "Add",
+            [current.as_str(), term.as_str()],
+            [output.as_str()],
+            vec![],
+        ));
+        current = output;
+    }
+    if terms.len() == 1 {
+        nodes.push(make_node(
+            "Identity",
+            [current.as_str()],
+            ["mw_output"],
+            vec![],
+        ));
+        "mw_output".into()
+    } else {
+        current
+    }
+}
+
+#[cfg(feature = "ensemble")]
+pub(crate) fn stack_onnx(bases: Vec<ModelProto>, meta: ModelProto) -> Result<ModelProto> {
+    use onnx_export_rs::graph_builder::{assemble_model, make_node};
+    use onnx_export_rs::proto::GraphProto;
+
+    if bases.is_empty() {
+        return Err(Error::Backend(
+            "cannot export stacking without base models".into(),
+        ));
+    }
+    let mut input = bases[0]
+        .graph
+        .as_ref()
+        .and_then(|graph| graph.input.first())
+        .cloned()
+        .ok_or_else(|| Error::Backend("stacking base ONNX model has no input".into()))?;
+    input.name = "mw_input".into();
+    let opset = bases
+        .iter()
+        .chain(std::iter::once(&meta))
+        .flat_map(|proto| proto.opset_import.iter())
+        .filter(|opset| opset.domain.is_empty())
+        .map(|opset| opset.version)
+        .max()
+        .unwrap_or(13)
+        .max(13);
+    let ir = bases
+        .iter()
+        .chain(std::iter::once(&meta))
+        .map(|proto| proto.ir_version)
+        .max()
+        .unwrap_or(8);
+    let mut nodes = Vec::new();
+    let mut initializers = Vec::new();
+    let mut outputs = Vec::new();
+    for (index, proto) in bases.into_iter().enumerate() {
+        let (mut member_nodes, mut member_initializers, output) =
+            namespace_graph(proto, &format!("mw_b{index}_"), "mw_input")?;
+        nodes.append(&mut member_nodes);
+        initializers.append(&mut member_initializers);
+        outputs.push(output);
+    }
+    nodes.push(make_node(
+        "Concat",
+        outputs,
+        ["mw_meta_input"],
+        vec![int_attribute("axis", 1)],
+    ));
+    let (mut meta_nodes, mut meta_initializers, meta_output) =
+        namespace_graph(meta, "mw_meta_", "mw_meta_input")?;
+    nodes.append(&mut meta_nodes);
+    initializers.append(&mut meta_initializers);
+    Ok(assemble_model(
+        GraphProto {
+            node: nodes,
+            name: "millwright_stacking".into(),
+            initializer: initializers,
+            doc_string: String::new(),
+            input: vec![input],
+            output: vec![make_value_info(
+                meta_output,
+                &[Dimension::Symbolic("batch".into()), Dimension::Fixed(1)],
+            )],
+            value_info: vec![],
+        },
+        opset,
+        ir,
+    ))
+}
+
 /// A loaded ONNX model, ready to run.
 ///
 /// tract runs NN / linear graphs; ONNX-ML ops it does not implement (tree

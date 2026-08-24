@@ -173,6 +173,22 @@ pub trait Estimator: Send + Sync {
         )))
     }
 
+    /// Whether this estimator can produce class probabilities through the
+    /// object-safe [`Estimator::predict_proba_dyn`] hook.
+    fn supports_proba(&self) -> bool {
+        false
+    }
+
+    /// Produce class probabilities without losing the capability when a model
+    /// is stored behind `Box<dyn Model>`. Probability-capable estimators
+    /// override this; callers should normally check [`Estimator::supports_proba`].
+    fn predict_proba_dyn(&self, _frame: &Frame) -> Result<Frame> {
+        Err(Error::Backend(format!(
+            "{} does not support probability prediction",
+            self.name()
+        )))
+    }
+
     /// Build this estimator's ONNX graph, if it supports export. Overridden by
     /// backends that are ONNX-exportable; the default reports the estimator is
     /// not exportable.
@@ -180,6 +196,15 @@ pub trait Estimator: Send + Sync {
     fn to_onnx_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
         Err(Error::Backend(format!(
             "{} is not ONNX-exportable",
+            self.name()
+        )))
+    }
+
+    /// Build an ONNX graph whose output is the class-probability matrix.
+    #[cfg(feature = "onnx")]
+    fn to_onnx_proba_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        Err(Error::Backend(format!(
+            "{} does not support ONNX probability export",
             self.name()
         )))
     }

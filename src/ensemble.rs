@@ -5,7 +5,7 @@
 //! core and compose over the four traits, so a linfa model, a smartcore forest,
 //! and any future backend can sit in one ensemble.
 //!
-//! - [`Voting`] — hard (majority) or soft (mean class-fraction) vote.
+//! - [`Voting`] — hard majority or genuine probability-averaged soft vote.
 //! - [`Bagging`] — bootstrap-resample, fit a base estimator per sample (in
 //!   parallel over rayon), aggregate.
 //! - [`Boosting`] — SAMME adaptive boosting: fit weak learners in sequence, each
@@ -17,10 +17,8 @@
 //! all-integral target is treated as class labels (aggregated by vote); any
 //! other target is treated as regression (aggregated by mean).
 //!
-//! A soft vote's [`predict_proba`](Voting::predict_proba) returns *class-vote
-//! shares* — the fraction of members voting each class — not calibrated
-//! probabilities. Run them through the `calibration` feature (Platt or isotonic)
-//! when you need probabilities that mean what they say.
+//! Soft voting requires every member to expose class probabilities and averages
+//! those probabilities. Use hard voting for estimators that only predict labels.
 
 use crate::error::{Error, Result};
 use crate::frame::{Dataset, Frame};
@@ -65,18 +63,28 @@ fn majority(votes: &[f64], classes: &[i64]) -> f64 {
     best as f64
 }
 
-/// Class-fraction probabilities: for each row, the fraction of members voting
-/// each class. One column per class, in ascending class order.
-fn vote_proba(members: &[Vec<f64>], n_rows: usize, classes: &[i64]) -> Result<Frame> {
+/// Average aligned member probabilities. Columns are matched by their `p<class>`
+/// names, so members may expose classes in a different order.
+fn mean_proba(members: &[Frame], n_rows: usize, classes: &[i64]) -> Result<Frame> {
     let m = members.len() as f64;
     let mut buf = Vec::with_capacity(n_rows * classes.len());
     for r in 0..n_rows {
         for &c in classes {
-            let count = members
-                .iter()
-                .filter(|mem| mem[r].round() as i64 == c)
-                .count();
-            buf.push(count as f64 / m);
+            let name = format!("p{c}");
+            let mut sum = 0.0;
+            for member in members {
+                let col = member
+                    .columns()
+                    .iter()
+                    .position(|column| column == &name)
+                    .ok_or_else(|| {
+                        Error::Shape(format!(
+                            "soft-voting member has no '{name}' probability column"
+                        ))
+                    })?;
+                sum += member.get(r, col);
+            }
+            buf.push(sum / m);
         }
     }
     let cols: Vec<String> = classes.iter().map(|c| format!("p{c}")).collect();
@@ -92,7 +100,7 @@ fn vote_proba(members: &[Vec<f64>], n_rows: usize, classes: &[i64]) -> Result<Fr
 pub enum VotingKind {
     /// Majority vote over hard predictions.
     Hard,
-    /// Argmax of the mean class-fraction across members.
+    /// Argmax of the mean class probability across members.
     Soft,
 }
 
@@ -116,7 +124,7 @@ impl Voting {
         }
     }
 
-    /// A soft-voting ensemble (mean class-fraction).
+    /// A soft-voting ensemble (mean class probabilities).
     pub fn soft() -> Self {
         Voting {
             kind: VotingKind::Soft,
@@ -135,6 +143,21 @@ impl Voting {
     fn member_preds(&self, frame: &Frame) -> Result<Vec<Vec<f64>>> {
         self.members.iter().map(|(_, m)| m.predict(frame)).collect()
     }
+
+    fn member_probas(&self, frame: &Frame) -> Result<Vec<Frame>> {
+        self.members
+            .iter()
+            .map(|(name, model)| {
+                if !model.supports_proba() {
+                    return Err(Error::Pipeline(format!(
+                        "soft-voting member '{name}' ({}) does not support probabilities",
+                        model.name()
+                    )));
+                }
+                model.predict_proba_dyn(frame)
+            })
+            .collect()
+    }
 }
 
 impl Estimator for Voting {
@@ -147,6 +170,12 @@ impl Estimator for Voting {
             return Err(Error::Pipeline("Voting has no members".into()));
         }
         self.classes = is_classification(dataset.target()).then(|| classes_of(dataset.target()));
+        if self.kind == VotingKind::Soft && self.classes.is_none() {
+            return Err(Error::Pipeline(
+                "soft voting is only available for classification; use hard voting for regression"
+                    .into(),
+            ));
+        }
         for (_, m) in &mut self.members {
             m.fit(dataset)?;
         }
@@ -157,6 +186,43 @@ impl Estimator for Voting {
     fn set_param(&mut self, path: &str, value: ParamValue) -> Result<()> {
         route(&mut self.members, path, value)
     }
+
+    fn supports_proba(&self) -> bool {
+        self.kind == VotingKind::Soft && self.members.iter().all(|(_, m)| m.supports_proba())
+    }
+
+    fn predict_proba_dyn(&self, frame: &Frame) -> Result<Frame> {
+        <Self as ProbaPredictor>::predict_proba(self, frame)
+    }
+
+    #[cfg(feature = "onnx")]
+    fn to_onnx_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        if !self.fitted {
+            return Err(Error::NotFitted("Voting::to_onnx".into()));
+        }
+        let classes = self.classes.as_deref();
+        let weights = vec![1.0; self.members.len()];
+        let protos = self
+            .members
+            .iter()
+            .map(|(_, member)| match self.kind {
+                VotingKind::Soft => member.to_onnx_proba_proto(),
+                VotingKind::Hard => member.to_onnx_proto(),
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let aggregation = match (self.kind, classes) {
+            (VotingKind::Soft, Some(classes)) => crate::onnx::EnsembleAggregation::SoftVote {
+                classes,
+                weights: &weights,
+            },
+            (VotingKind::Hard, Some(classes)) => crate::onnx::EnsembleAggregation::HardVote {
+                classes,
+                weights: &weights,
+            },
+            (_, None) => crate::onnx::EnsembleAggregation::Mean,
+        };
+        crate::onnx::combine_onnx(protos, aggregation)
+    }
 }
 
 impl Predictor for Voting {
@@ -164,14 +230,17 @@ impl Predictor for Voting {
         if !self.fitted {
             return Err(Error::NotFitted("Voting::predict".into()));
         }
-        let preds = self.member_preds(frame)?;
         match (self.kind, &self.classes) {
             (VotingKind::Soft, Some(classes)) => {
-                let proba = vote_proba(&preds, frame.nrows(), classes)?;
+                let proba = mean_proba(&self.member_probas(frame)?, frame.nrows(), classes)?;
                 Ok(argmax_rows(&proba, classes))
             }
             // Hard vote, or regression (mean) via `aggregate`.
-            _ => Ok(aggregate(&preds, frame.nrows(), &self.classes)),
+            _ => Ok(aggregate(
+                &self.member_preds(frame)?,
+                frame.nrows(),
+                &self.classes,
+            )),
         }
     }
 }
@@ -181,8 +250,12 @@ impl ProbaPredictor for Voting {
         let classes = self.classes.as_ref().ok_or_else(|| {
             Error::Pipeline("predict_proba requires a classification target".into())
         })?;
-        let preds = self.member_preds(frame)?;
-        vote_proba(&preds, frame.nrows(), classes)
+        match self.kind {
+            VotingKind::Soft => mean_proba(&self.member_probas(frame)?, frame.nrows(), classes),
+            VotingKind::Hard => Err(Error::Pipeline(
+                "predict_proba is only defined for soft voting".into(),
+            )),
+        }
     }
 }
 
@@ -279,6 +352,27 @@ impl Estimator for Bagging {
         // "base__param" (or a bare param name) tunes the base estimator.
         let param = path.strip_prefix("base__").unwrap_or(path);
         self.base.set_param(param, value)
+    }
+
+    #[cfg(feature = "onnx")]
+    fn to_onnx_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        if !self.fitted {
+            return Err(Error::NotFitted("Bagging::to_onnx".into()));
+        }
+        let protos = self
+            .members
+            .iter()
+            .map(|member| member.to_onnx_proto())
+            .collect::<Result<Vec<_>>>()?;
+        let weights = vec![1.0; self.members.len()];
+        let aggregation = match self.classes.as_deref() {
+            Some(classes) => crate::onnx::EnsembleAggregation::HardVote {
+                classes,
+                weights: &weights,
+            },
+            None => crate::onnx::EnsembleAggregation::Mean,
+        };
+        crate::onnx::combine_onnx(protos, aggregation)
     }
 }
 
@@ -450,6 +544,26 @@ impl Estimator for Boosting {
         let param = path.strip_prefix("base__").unwrap_or(path);
         self.base.set_param(param, value)
     }
+
+    #[cfg(feature = "onnx")]
+    fn to_onnx_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        if !self.fitted {
+            return Err(Error::NotFitted("Boosting::to_onnx".into()));
+        }
+        let protos = self
+            .members
+            .iter()
+            .map(|(member, _)| member.to_onnx_proto())
+            .collect::<Result<Vec<_>>>()?;
+        let weights: Vec<f64> = self.members.iter().map(|(_, weight)| *weight).collect();
+        crate::onnx::combine_onnx(
+            protos,
+            crate::onnx::EnsembleAggregation::HardVote {
+                classes: &self.classes,
+                weights: &weights,
+            },
+        )
+    }
 }
 
 impl Predictor for Boosting {
@@ -592,6 +706,19 @@ impl Estimator for Stacking {
             return self.meta.set_param(param, value);
         }
         route(&mut self.bases, path, value)
+    }
+
+    #[cfg(feature = "onnx")]
+    fn to_onnx_proto(&self) -> Result<onnx_export_rs::proto::ModelProto> {
+        if !self.fitted {
+            return Err(Error::NotFitted("Stacking::to_onnx".into()));
+        }
+        let bases = self
+            .fitted_bases
+            .iter()
+            .map(|base| base.to_onnx_proto())
+            .collect::<Result<Vec<_>>>()?;
+        crate::onnx::stack_onnx(bases, self.meta.to_onnx_proto()?)
     }
 }
 
