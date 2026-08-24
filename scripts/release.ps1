@@ -33,7 +33,7 @@ $tag = "v$Version"
 git rev-parse --verify --quiet "refs/tags/$tag" 2>$null
 if ($LASTEXITCODE -eq 0) { throw "tag $tag already exists" }
 
-$releaseFiles = @('Cargo.toml', 'Cargo.lock', 'pyproject.toml', 'CHANGELOG.md', 'index.html', 'guide.html', 'docs/index.html', 'tests/python_smoke.py')
+$releaseFiles = @('Cargo.toml', 'Cargo.lock', 'pyproject.toml', 'CHANGELOG.md', 'index.html', 'guide.html', 'docs/index.html', 'tests/python/test_frame_and_profile.py')
 $committed = $false
 try {
     python scripts/sync-version.py $Version

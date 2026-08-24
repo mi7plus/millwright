@@ -18,7 +18,8 @@ powershell -File scripts/release.ps1 2.2.1
 It synchronizes both manifests and every public HTML version marker, rolls the
 changelog, syncs `Cargo.lock`, verifies the package, commits, tags `v2.2.1`, and
 (after a prompt) pushes — which triggers the
-publish workflows below. The rest of this file is the manual equivalent.
+single gated release workflow below. The rest of this file is the manual
+equivalent.
 
 ## Preflight (manual)
 
@@ -31,34 +32,40 @@ publish workflows below. The rest of this file is the manual equivalent.
    cargo publish --dry-run --locked
    ```
 
-## Rust crate → crates.io
+## Coordinated crates.io and PyPI release
 
-Automated by the **`release-crate.yml`** workflow, which publishes on a `v*` tag
-via **Trusted Publishing (OIDC)** — no token is stored anywhere. One-time setup,
-on crates.io (crate → Settings → Trusted Publishing → add GitHub):
+Automated by **`release.yml`**, which publishes on a `v*` tag via **Trusted
+Publishing (OIDC)** — no token is stored anywhere. It first verifies that the
+tagged commit is on `main`, has a successful CI run, has synchronized version
+markers, and has a dated changelog section. It then dry-runs the crate package,
+builds every wheel and the sdist, and installs and tests every native wheel.
+Neither registry is touched until every gate passes.
+
+Two registries cannot provide a cross-registry transaction: an external outage
+during the final publish job can still leave one registry ahead of the other.
+Running both publishes in one job after all validation makes that unavoidable
+window as small and recoverable as possible.
+
+Configure crates.io (crate → Settings → Trusted Publishing → add GitHub):
+
+> Existing trusted-publisher entries for the retired `release-crate.yml` and
+> `release-python.yml` workflows must be replaced with `release.yml` before the
+> next version tag is pushed.
 
 | field               | value              |
 | ------------------- | ------------------ |
 | Repository owner    | `mi7plus`          |
 | Repository name     | `millwright`       |
-| Workflow filename   | `release-crate.yml`|
+| Workflow filename   | `release.yml`      |
 | Environment         | *(leave blank)*    |
 
-Then a tag (below) publishes; a manual run (Actions → release-crate → Run
-workflow) does a `--dry-run`. The workflow also fails fast if the tag doesn't
-match `Cargo.toml`'s version. To publish by hand instead: `cargo login <token>`
-then `cargo publish --locked`.
+To publish by hand instead: `cargo login <token>` then `cargo publish --locked`.
 
 docs.rs builds the documentation automatically with the `full` feature set (see
 `[package.metadata.docs.rs]` in `Cargo.toml`); the `python` feature is excluded
 there because it needs a Python interpreter.
 
-## Python wheel → PyPI
-
-The recommended path is the **`release-python.yml`** workflow, which builds
-Linux (x86_64 + aarch64), macOS (x86_64 + aarch64), and Windows wheels plus an
-sdist, and publishes them together via **Trusted Publishing (OIDC)** — no stored
-token. One-time setup, on PyPI:
+Configure PyPI:
 
 - **Existing project:** PyPI → Your projects → `millwright` → Manage →
   Publishing → Add a new publisher (GitHub Actions).
@@ -68,7 +75,7 @@ token. One-time setup, on PyPI:
 | ------------------- | ------------------- |
 | Owner               | `mi7plus`           |
 | Repository name     | `millwright`        |
-| Workflow name       | `release-python.yml`|
+| Workflow name       | `release.yml`       |
 | Environment         | *(leave blank)*     |
 
 *(A pending publisher also needs the PyPI Project Name, `millwright`.)*
@@ -79,9 +86,9 @@ Then every release is just a tag:
 git tag vX.Y.Z && git push --tags
 ```
 
-The workflow builds all platforms and publishes on the tag. A manual run
-(Actions → release-python → Run workflow) builds the wheels *without* publishing,
-for a dry run.
+The workflow builds Linux (x86_64 + aarch64), macOS (x86_64 + aarch64), and
+Windows x64 wheels plus an sdist. A manual run (Actions → release → Run
+workflow) performs every build and test gate *without* publishing.
 
 To publish a single platform's wheel by hand instead (only installable on that
 OS), from a Developer PowerShell/Prompt with a Python toolchain:

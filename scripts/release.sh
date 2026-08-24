@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Release helper — bump the versions, roll the changelog, commit, tag, and (after
-# a prompt) push, which triggers the crates.io + PyPI publish workflows.
+# a prompt) push, which triggers the coordinated release workflow.
 #
 #   Usage:  scripts/release.sh X.Y.Z
 #   Windows: powershell -File scripts/release.ps1 X.Y.Z
 #
 # It bakes in the "bump the manifests BEFORE tagging" rule, so the tag always
-# matches Cargo.toml — the release-crate workflow rejects a mismatch. Uses GNU
+# matches Cargo.toml — the release workflow rejects a mismatch. Uses GNU
 # sed (Git Bash / Linux).
 set -euo pipefail
 
@@ -25,7 +25,7 @@ git rev-parse -q --verify "refs/tags/$tag" >/dev/null && die "tag $tag already e
 
 echo "==> releasing $version"
 
-release_files=(Cargo.toml Cargo.lock pyproject.toml CHANGELOG.md index.html guide.html docs/index.html tests/python_smoke.py)
+release_files=(Cargo.toml Cargo.lock pyproject.toml CHANGELOG.md index.html guide.html docs/index.html tests/python/test_frame_and_profile.py)
 committed=0
 cleanup() {
   if [[ "$committed" == 0 ]]; then
@@ -57,7 +57,7 @@ echo "==> committed and tagged $tag"
 read -r -p "Push main + $tag now? This publishes to crates.io and PyPI. [y/N] " reply
 if [[ "$reply" == "y" || "$reply" == "Y" ]]; then
   git push origin main "$tag"
-  echo "==> pushed — watch the release-crate / release-python workflows."
+  echo "==> pushed — watch the release workflow."
 else
   echo "not pushed. When ready:  git push origin main $tag"
 fi
