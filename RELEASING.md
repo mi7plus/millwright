@@ -47,8 +47,9 @@ up to 30 minutes. Publication is safe to rerun after a registry interruption:
 an existing crate is skipped, while PyPI uploads only files that are still
 missing. After both registries succeed, the workflow creates the GitHub Release
 and attaches all wheels, the source distribution, the `.crate` archive, an SPDX
-SBOM, and a SHA-256 manifest. GitHub records signed provenance and SBOM
-attestations for every listed artifact.
+SBOM generated from that staged artifact bundle, and a SHA-256 manifest. GitHub
+records signed provenance and artifact-bundle SBOM attestations for every
+listed package.
 
 Two registries cannot provide a cross-registry transaction: an external outage
 during the final publish job can still leave one registry ahead of the other.

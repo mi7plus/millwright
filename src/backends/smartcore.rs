@@ -335,53 +335,59 @@ enum SvcKernel {
     Rbf { gamma: f64 },
 }
 
-/// A fitted SVC together with the parameters it borrows.
-///
-/// smartcore's `SVC` binds one lifetime across its inputs, but the fitted model
-/// copies its support vectors and only retains a reference to the *parameters*
-/// (the kernel). This holder owns those parameters at a stable heap address and
-/// keeps them alive for the model's whole life, so the borrow is sound.
-struct FittedSvc {
-    // `model` borrows `_params`; declared first so it is dropped first.
-    model: ScMultiSvc,
-    _params: Box<ScSvcParams>,
-}
+// smartcore 0.6 ties SVC's output lifetime to every fit input and does not mark
+// its numeric kernel trait Send/Sync. Keep the resulting compatibility shim in
+// one explicitly audited boundary; crate-wide `deny(unsafe_code)` prevents the
+// assumptions from spreading to any other module.
+#[allow(unsafe_code)]
+mod svc_lifetime {
+    use super::*;
 
-impl FittedSvc {
-    fn fit(x: DenseMatrix<f64>, y: Vec<i64>, params: ScSvcParams) -> Result<FittedSvc> {
-        let params = Box::new(params);
-        // SAFETY: `MultiClassSVC` stores only a `&parameters` reference (support
-        // vectors are copied in) and does not retain `x`/`y`. We box `params`
-        // for a stable address, hand `fit` a `'static` view of it, and keep the
-        // box alive for the model's whole life, dropping `model` before
-        // `_params` (field order). `x`/`y` outlive the `fit` call and are not
-        // referenced by the returned model, so widening their borrow for the
-        // call only is sound.
-        let params_ref: &'static ScSvcParams = unsafe { &*(params.as_ref() as *const ScSvcParams) };
-        let x_ref: &'static DenseMatrix<f64> = unsafe { &*(&x as *const DenseMatrix<f64>) };
-        let y_ref: &'static Vec<i64> = unsafe { &*(&y as *const Vec<i64>) };
-        let model = MultiClassSVC::fit(x_ref, y_ref, params_ref)
-            .map_err(|e| Error::Backend(format!("Svc fit failed: {e}")))?;
-        Ok(FittedSvc {
-            model,
-            _params: params,
-        })
+    /// A fitted SVC together with the parameters it borrows.
+    pub(super) struct FittedSvc {
+        // `model` borrows `_params`; declaration order makes it drop first.
+        model: ScMultiSvc,
+        _params: Box<ScSvcParams>,
     }
 
-    fn predict(&self, x: &DenseMatrix<f64>) -> Result<Vec<f64>> {
-        self.model
-            .predict(x)
-            .map_err(|e| Error::Backend(format!("Svc predict failed: {e}")))
+    impl FittedSvc {
+        pub(super) fn fit(
+            x: DenseMatrix<f64>,
+            y: Vec<i64>,
+            params: ScSvcParams,
+        ) -> Result<FittedSvc> {
+            let params = Box::new(params);
+            // SAFETY: pinned smartcore 0.6.10 copies support vectors and labels;
+            // the returned model retains only `params`. The Box gives params a
+            // stable address and this holder drops model before params. This
+            // invariant is covered by refit/drop and concurrent prediction tests.
+            let params_ref: &'static ScSvcParams =
+                unsafe { &*(params.as_ref() as *const ScSvcParams) };
+            let x_ref: &'static DenseMatrix<f64> = unsafe { &*(&x as *const DenseMatrix<f64>) };
+            let y_ref: &'static Vec<i64> = unsafe { &*(&y as *const Vec<i64>) };
+            let model = MultiClassSVC::fit(x_ref, y_ref, params_ref)
+                .map_err(|e| Error::Backend(format!("Svc fit failed: {e}")))?;
+            Ok(FittedSvc {
+                model,
+                _params: params,
+            })
+        }
+
+        pub(super) fn predict(&self, x: &DenseMatrix<f64>) -> Result<Vec<f64>> {
+            self.model
+                .predict(x)
+                .map_err(|e| Error::Backend(format!("Svc predict failed: {e}")))
+        }
     }
+
+    // SAFETY: the fitted value is immutable; its sole retained reference points
+    // to its owned, immutable parameter box. The pinned kernels contain numeric
+    // configuration only. Re-audit these impls whenever smartcore is upgraded.
+    unsafe impl Send for FittedSvc {}
+    unsafe impl Sync for FittedSvc {}
 }
 
-// SAFETY: `FittedSvc` is immutable after construction. Its internal reference
-// points into its own boxed `_params` (they move together — no aliasing across
-// the boundary), and smartcore's kernels hold only plain numeric config, so the
-// value is effectively `Send`/`Sync` even though `dyn Kernel` is not bounded as
-// such. This gives `Svc` the same thread-safety as the other backend models.
-unsafe impl Send for FittedSvc {}
-unsafe impl Sync for FittedSvc {}
+use svc_lifetime::FittedSvc;
 
 /// A support vector classifier backed by smartcore (one-vs-one for multiclass).
 #[derive(Clone)]
@@ -639,5 +645,40 @@ mod tests {
         )
         .unwrap();
         assert_eq!(m.predict(&probe).unwrap(), vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn svc_is_send_sync_and_predicts_concurrently() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Svc>();
+
+        let (ds, probe) = two_clusters();
+        let mut model = Svc::rbf();
+        model.fit(&ds).unwrap();
+        let model = Arc::new(model);
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let model = Arc::clone(&model);
+                let probe = probe.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..100 {
+                        assert_eq!(model.predict(&probe).unwrap(), vec![0.0, 1.0]);
+                    }
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn svc_can_be_refit_repeatedly() {
+        let (ds, probe) = two_clusters();
+        let mut model = Svc::linear();
+        for _ in 0..25 {
+            model.fit(&ds).unwrap();
+            assert_eq!(model.predict(&probe).unwrap(), vec![0.0, 1.0]);
+        }
     }
 }
