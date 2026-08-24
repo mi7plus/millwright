@@ -1992,7 +1992,7 @@ dependencies = [
  "linfa-reduction",
  "model-selection-rs",
  "ndarray 0.15.6",
- "ndarray 0.16.1",
+ "ndarray 0.17.2",
  "onnx-export-rs",
  "plotters",
  "plotters-statistical",
@@ -4256,7 +4256,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "704ef26d974e8a452313ed629828cd9d4e4fa34667ca1ad9d6b1fffa43c6e166"
 dependencies = [
  "alga",
- "ndarray 0.16.1",
+ "ndarray 0.15.6",
  "num-complex 0.4.6",
  "num-traits",
  "num_cpus",
