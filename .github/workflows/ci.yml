@@ -36,7 +36,6 @@ jobs:
           args: >-
             --no-progress
             --accept 200,204,206,429
-            --exclude-mail
             --retry-wait-time 2
             index.html guide.html docs/*.html README.md CONTRIBUTING.md RELEASING.md
           fail: true
