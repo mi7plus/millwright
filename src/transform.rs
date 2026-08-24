@@ -459,9 +459,9 @@ fn distinct_sorted(col: &[f64]) -> Vec<i64> {
 
 #[path = "transform_advanced.rs"]
 mod advanced;
-pub use advanced::{ColumnTransformer, PowerTransform, TargetEncoder, Winsorize};
 #[cfg(test)]
 use advanced::skewness;
+pub use advanced::{ColumnTransformer, PowerTransform, TargetEncoder, Winsorize};
 
 #[cfg(test)]
 #[path = "transform_tests.rs"]
