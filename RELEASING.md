@@ -41,6 +41,12 @@ markers, and has a dated changelog section. It then dry-runs the crate package,
 builds every wheel and the sdist, and installs and tests every native wheel.
 Neither registry is touched until every gate passes.
 
+If the tag arrives while CI is still running, release preflight waits for it for
+up to 30 minutes. Publication is safe to rerun after a registry interruption:
+an existing crate is skipped, while PyPI uploads only files that are still
+missing. After both registries succeed, the workflow creates the GitHub Release
+and attaches all wheels, the source distribution, and the `.crate` archive.
+
 Two registries cannot provide a cross-registry transaction: an external outage
 during the final publish job can still leave one registry ahead of the other.
 Running both publishes in one job after all validation makes that unavoidable

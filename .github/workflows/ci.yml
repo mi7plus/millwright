@@ -268,3 +268,36 @@ jobs:
       - run: maturin build --locked --release
       - run: pip install --find-links target/wheels millwright
       - run: pytest -q tests/python
+
+  ci-success:
+    name: CI success
+    if: always()
+    needs:
+      - consistency
+      - fmt
+      - clippy
+      - docs
+      - test
+      - os
+      - msrv
+      - supply-chain
+      - dependency-policy
+      - coverage
+      - branch-coverage
+      - semver
+      - examples
+      - package
+      - python
+    runs-on: ubuntu-latest
+    steps:
+      - name: require every CI job to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        shell: bash
+        run: |
+          failures="$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$RESULTS")"
+          if [ -n "$failures" ]; then
+            echo "::error::one or more CI jobs did not succeed"
+            printf '%s\n' "$failures"
+            exit 1
+          fi
