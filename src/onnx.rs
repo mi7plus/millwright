@@ -209,6 +209,7 @@ pub(crate) fn prepend_prefixes(proto: &mut ModelProto, prefixes: &[Prefix]) -> R
     Ok(())
 }
 
+#[cfg(feature = "ensemble")]
 #[derive(Clone, Copy)]
 pub(crate) enum EnsembleAggregation<'a> {
     Mean,
