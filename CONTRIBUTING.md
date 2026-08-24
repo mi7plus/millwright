@@ -24,6 +24,8 @@ cargo clippy --features full --all-targets -- -D warnings
 cargo test --features full
 cargo test --no-default-features            # the bare-core build must pass too
 cargo doc --no-deps --features full         # with RUSTDOCFLAGS="-D warnings"
+python -m pip install -r requirements/ci-python.txt
+python -m mypy --strict tests/python/typing_contract.py
 ```
 
 - **Every capability is a cargo feature.** New functionality behind a young

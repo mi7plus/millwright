@@ -1,3 +1,5 @@
+#![deny(unsafe_code)]
+
 //! # Millwright
 //!
 //! A unified ML framework for Rust — *fit. predict. serve. watch.*
