@@ -37,6 +37,11 @@ def sync(version: str, *, check: bool) -> list[str]:
     escaped = re.escape(version)
     checks = [
         ("Cargo.toml", r'(?m)^version = "[^"]+"', f'version = "{version}"'),
+        (
+            "Cargo.lock",
+            r'(\[\[package\]\]\nname = "millwright"\nversion = ")[^"]+("\n)',
+            rf'\g<1>{version}\2',
+        ),
         ("pyproject.toml", r'(?m)^version = "[^"]+"', f'version = "{version}"'),
         ("index.html", r'<span class="ver">v[^<]+</span>', f'<span class="ver">v{version}</span>'),
         ("guide.html", r'<title>Millwright v[^<]+ · Guide</title>', f'<title>Millwright v{version} · Guide</title>'),
