@@ -18,6 +18,10 @@ updates:
     ignore:
       # Engine versions are exact by design. Dependabot PRs cannot safely infer
       # coordinated upgrades across their ndarray and ONNX type boundaries.
+      - dependency-name: "ndarray"
+      - dependency-name: "prost"
+      - dependency-name: "sha2"
+      - dependency-name: "criterion"
       - dependency-name: "smartcore"
       - dependency-name: "imbalance-rs"
       - dependency-name: "model-selection-rs"

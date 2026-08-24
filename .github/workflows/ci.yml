@@ -220,10 +220,8 @@ jobs:
       - run: cargo semver-checks check-release
 
   # Compile and *run* the examples (the `test` jobs only build the library and
-  # its tests), plus a compile-check of the benchmarks. The declared MSRV
-  # (`rust-version` in Cargo.toml) is enforced by cargo for consumers; we do not
-  # run a dedicated old-toolchain job, since the floor is dictated entirely by
-  # transitive engine deps and would otherwise break on every one of their bumps.
+  # its tests), plus a compile-check of the benchmarks. The dedicated `msrv`
+  # job above proves the declared Rust 1.95 floor independently.
   examples:
     name: examples & benches
     runs-on: ubuntu-latest
