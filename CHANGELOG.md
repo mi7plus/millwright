@@ -6,6 +6,30 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-08-24
+
+### Added
+- Enforced line, function, and region coverage floors, plus nightly LLVM branch
+  coverage artifacts.
+- Expanded the installed-wheel Python suite to cover validation, classification,
+  regression, search, explainability, profiling, and ONNX round trips.
+- Added protected MSRV, branch-coverage, Windows, and macOS checks on `main`.
+
+### Changed
+- Isolated ONNX native execution, profile rendering, advanced transforms, and
+  Python data/EDA bindings into focused production modules.
+- Hardened Dependabot so compatibility-boundary and exact-pinned engine upgrades
+  remain deliberate, while safe GitHub Actions updates stay automated.
+- Updated GitHub Actions and kept release publishing on trusted OIDC workflows.
+
+### Fixed
+- Version synchronization now includes the root `Cargo.lock` package entry and
+  the maintained Python version assertion.
+- Removed the obsolete standalone Python smoke script after migrating CI to the
+  pytest behavioral suite.
+- Corrected the MSRV workflow selector so dependency automation cannot rewrite
+  Rust 1.95 as an action version.
+
 ## [2.2.0] - 2026-08-24
 
 ### Added
