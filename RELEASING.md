@@ -45,7 +45,9 @@ If the tag arrives while CI is still running, release preflight waits for it for
 up to 30 minutes. Publication is safe to rerun after a registry interruption:
 an existing crate is skipped, while PyPI uploads only files that are still
 missing. After both registries succeed, the workflow creates the GitHub Release
-and attaches all wheels, the source distribution, and the `.crate` archive.
+and attaches all wheels, the source distribution, the `.crate` archive, an SPDX
+SBOM, and a SHA-256 manifest. GitHub records signed provenance and SBOM
+attestations for every listed artifact.
 
 Two registries cannot provide a cross-registry transaction: an external outage
 during the final publish job can still leave one registry ahead of the other.
@@ -105,6 +107,8 @@ maturin publish            # needs MATURIN_PYPI_TOKEN set
 
 ## Notes
 
+- Release tags matching `v*` are immutable: the repository ruleset permits
+  creation but blocks later updates and deletion.
 - The crate pins its engines to exact versions and commits `Cargo.lock`, so a
   publish is fully reproducible.
 - MSRV is declared in `Cargo.toml` (`rust-version`) and enforced by cargo for

@@ -38,6 +38,7 @@ jobs:
             --accept 200,204,206,429
             --retry-wait-time 2
             index.html guide.html docs/*.html README.md CONTRIBUTING.md RELEASING.md
+            .github/SECURITY.md
           fail: true
 
   fmt:
