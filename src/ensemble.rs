@@ -27,7 +27,10 @@ use crate::rng::Rng;
 use crate::traits::{Estimator, Model, ParamValue, Predictor, ProbaPredictor};
 
 fn is_classification(target: &[f64]) -> bool {
-    !target.is_empty() && target.iter().all(|v| v.is_finite() && v.fract() == 0.0)
+    !target.is_empty()
+        && target.iter().all(|v| {
+            v.is_finite() && v.fract() == 0.0 && *v >= i64::MIN as f64 && *v <= i64::MAX as f64
+        })
 }
 
 fn classes_of(target: &[f64]) -> Vec<i64> {
@@ -49,18 +52,47 @@ pub enum EnsembleTask {
     Regression,
 }
 
-fn target_classes(task: EnsembleTask, target: &[f64]) -> Option<Vec<i64>> {
+fn target_classes(task: EnsembleTask, target: &[f64]) -> Result<Option<Vec<i64>>> {
     match task {
-        EnsembleTask::Infer => is_classification(target).then(|| classes_of(target)),
-        EnsembleTask::Classification => Some(classes_of(target)),
-        EnsembleTask::Regression => None,
+        EnsembleTask::Infer => Ok(is_classification(target).then(|| classes_of(target))),
+        EnsembleTask::Classification => {
+            if target.is_empty()
+                || target.iter().any(|value| {
+                    !value.is_finite()
+                        || value.fract() != 0.0
+                        || *value < i64::MIN as f64
+                        || *value > i64::MAX as f64
+                })
+            {
+                return Err(Error::Shape(
+                    "classification targets must be non-empty, finite integer labels".into(),
+                ));
+            }
+            Ok(Some(classes_of(target)))
+        }
+        EnsembleTask::Regression => Ok(None),
     }
 }
 
 /// Majority vote (classification) or mean (regression) across members' row
 /// predictions. `members` is `[member][row]`.
-fn aggregate(members: &[Vec<f64>], n_rows: usize, classes: &Option<Vec<i64>>) -> Vec<f64> {
-    (0..n_rows)
+fn aggregate(members: &[Vec<f64>], n_rows: usize, classes: &Option<Vec<i64>>) -> Result<Vec<f64>> {
+    if members.is_empty() {
+        return Err(Error::Shape(
+            "ensemble produced no member predictions".into(),
+        ));
+    }
+    if let Some((index, predictions)) = members
+        .iter()
+        .enumerate()
+        .find(|(_, predictions)| predictions.len() != n_rows)
+    {
+        return Err(Error::Shape(format!(
+            "ensemble member {index} returned {} predictions for {n_rows} rows",
+            predictions.len()
+        )));
+    }
+    Ok((0..n_rows)
         .map(|r| {
             let col: Vec<f64> = members.iter().map(|m| m[r]).collect();
             match classes {
@@ -68,7 +100,7 @@ fn aggregate(members: &[Vec<f64>], n_rows: usize, classes: &Option<Vec<i64>>) ->
                 None => col.iter().sum::<f64>() / col.len() as f64,
             }
         })
-        .collect()
+        .collect())
 }
 
 fn majority(votes: &[f64], classes: &[i64]) -> f64 {
@@ -87,6 +119,21 @@ fn majority(votes: &[f64], classes: &[i64]) -> f64 {
 /// Average aligned member probabilities. Columns are matched by their `p<class>`
 /// names, so members may expose classes in a different order.
 fn mean_proba(members: &[Frame], n_rows: usize, classes: &[i64]) -> Result<Frame> {
+    if members.is_empty() {
+        return Err(Error::Shape(
+            "soft voting produced no probability outputs".into(),
+        ));
+    }
+    if let Some((index, probabilities)) = members
+        .iter()
+        .enumerate()
+        .find(|(_, probabilities)| probabilities.nrows() != n_rows)
+    {
+        return Err(Error::Shape(format!(
+            "soft-voting member {index} returned {} probability rows for {n_rows} inputs",
+            probabilities.nrows()
+        )));
+    }
     let m = members.len() as f64;
     let mut buf = Vec::with_capacity(n_rows * classes.len());
     for r in 0..n_rows {
@@ -199,7 +246,7 @@ impl Estimator for Voting {
         if self.members.is_empty() {
             return Err(Error::Pipeline("Voting has no members".into()));
         }
-        self.classes = target_classes(self.task, dataset.target());
+        self.classes = target_classes(self.task, dataset.target())?;
         if self.kind == VotingKind::Soft && self.classes.is_none() {
             return Err(Error::Pipeline(
                 "soft voting is only available for classification; use hard voting for regression"
@@ -266,11 +313,7 @@ impl Predictor for Voting {
                 Ok(argmax_rows(&proba, classes))
             }
             // Hard vote, or regression (mean) via `aggregate`.
-            _ => Ok(aggregate(
-                &self.member_preds(frame)?,
-                frame.nrows(),
-                &self.classes,
-            )),
+            _ => aggregate(&self.member_preds(frame)?, frame.nrows(), &self.classes),
         }
     }
 }
@@ -362,8 +405,13 @@ impl Estimator for Bagging {
         if self.n_estimators == 0 {
             return Err(Error::Pipeline("Bagging needs n_estimators >= 1".into()));
         }
-        self.classes = target_classes(self.task, dataset.target());
+        self.classes = target_classes(self.task, dataset.target())?;
         let n = dataset.features().nrows();
+        if n == 0 {
+            return Err(Error::Shape(
+                "Bagging requires at least one training row".into(),
+            ));
+        }
 
         // Draw the bootstrap index sets sequentially (deterministic RNG), then
         // fit the base estimator on each in parallel over rayon. `par_iter`
@@ -424,7 +472,7 @@ impl Predictor for Bagging {
             .iter()
             .map(|m| m.predict(frame))
             .collect::<Result<_>>()?;
-        Ok(aggregate(&preds, frame.nrows(), &self.classes))
+        aggregate(&preds, frame.nrows(), &self.classes)
     }
 }
 
@@ -511,9 +559,16 @@ impl Estimator for Boosting {
         if self.n_estimators == 0 {
             return Err(Error::Pipeline("Boosting needs n_estimators >= 1".into()));
         }
-        let y: Vec<i64> = dataset.target().iter().map(|v| v.round() as i64).collect();
+        if !self.learning_rate.is_finite() || self.learning_rate <= 0.0 {
+            return Err(Error::Param(
+                "Boosting learning_rate must be finite and > 0".into(),
+            ));
+        }
+        let classes = target_classes(EnsembleTask::Classification, dataset.target())?
+            .ok_or_else(|| Error::Shape("classification target has no classes".into()))?;
+        let y: Vec<i64> = dataset.target().iter().map(|v| *v as i64).collect();
         let n = y.len();
-        self.classes = classes_of(dataset.target());
+        self.classes = classes;
         let k = self.classes.len();
         if k < 2 {
             return Err(Error::Pipeline("Boosting needs >= 2 classes".into()));
@@ -529,6 +584,12 @@ impl Estimator for Boosting {
             let mut m = self.base.clone();
             m.fit(&dataset.select(&idx))?;
             let preds = m.predict(x)?;
+            if preds.len() != n {
+                return Err(Error::Shape(format!(
+                    "boosting member returned {} predictions for {n} rows",
+                    preds.len()
+                )));
+            }
             let miss: Vec<bool> = preds
                 .iter()
                 .zip(&y)
@@ -556,6 +617,11 @@ impl Estimator for Boosting {
             }
 
             let alpha = self.learning_rate * (((1.0 - err) / err).ln() + (k as f64 - 1.0).ln());
+            if !alpha.is_finite() {
+                return Err(Error::Param(
+                    "Boosting learning_rate produced a non-finite round weight".into(),
+                ));
+            }
             for i in 0..n {
                 if miss[i] {
                     w[i] *= alpha.exp();
@@ -614,6 +680,12 @@ impl Predictor for Boosting {
         let mut scores = vec![vec![0.0f64; k]; n];
         for (m, alpha) in &self.members {
             let preds = m.predict(frame)?;
+            if preds.len() != n {
+                return Err(Error::Shape(format!(
+                    "boosting member returned {} predictions for {n} rows",
+                    preds.len()
+                )));
+            }
             for (r, p) in preds.iter().enumerate() {
                 let cls = p.round() as i64;
                 if let Some(ci) = self.classes.iter().position(|c| *c == cls) {
@@ -694,6 +766,12 @@ impl Stacking {
         let mut buf = vec![0.0; n * self.fitted_bases.len()];
         for (j, m) in self.fitted_bases.iter().enumerate() {
             let preds = m.predict(frame)?;
+            if preds.len() != n {
+                return Err(Error::Shape(format!(
+                    "stacking base {j} returned {} predictions for {n} rows",
+                    preds.len()
+                )));
+            }
             for (r, p) in preds.into_iter().enumerate() {
                 buf[r * self.fitted_bases.len() + j] = p;
             }
@@ -718,11 +796,18 @@ impl Estimator for Stacking {
         // Out-of-fold predictions: one meta-feature column per base model.
         let n_bases = self.bases.len();
         let mut oof = vec![0.0; n * n_bases];
-        for (j, (_, base)) in self.bases.iter().enumerate() {
+        for (j, (name, base)) in self.bases.iter().enumerate() {
             for (train, test) in &splits {
                 let mut m = base.clone();
                 m.fit(&dataset.select(train))?;
                 let preds = m.predict(&dataset.features().select_rows(test))?;
+                if preds.len() != test.len() {
+                    return Err(Error::Shape(format!(
+                        "stacking base '{name}' returned {} out-of-fold predictions for {} rows",
+                        preds.len(),
+                        test.len()
+                    )));
+                }
                 for (&row, p) in test.iter().zip(preds) {
                     oof[row * n_bases + j] = p;
                 }

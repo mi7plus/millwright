@@ -11,12 +11,23 @@ All notable changes to Millwright are recorded here. The format follows
   stacking, and AutoML, including ONNX export and ensemble diagnostics.
 - Explicit classification/regression semantics for ensembles, avoiding
   accidental voting over integer-valued regression targets.
+- Python logistic regression and probability prediction for soft voting,
+  minute budgets, structured AutoML leaderboards, failure diagnostics, and
+  fitted-winner access.
 
 ### Fixed
 - Preserve domain-specific opset imports while composing ONNX ensemble graphs;
   CI now checks tree ensembles with the official ONNX checker.
 - AutoML stacking inherits the configured CV strategy, and failed ensemble
   candidates are retained as inspectable diagnostics instead of disappearing.
+- AutoML continues past failed individual candidates, validates budgets, and
+  reports those failures; classifier candidate construction now shares one
+  feature-aware model matrix instead of three duplicated paths.
+- Ensembles validate classification labels, learning rates, and model output
+  dimensions, returning typed errors instead of rounding invalid labels or
+  risking indexing panics.
+- Updated Python CI to use a patched pytest release while preserving Python 3.9
+  ABI support with a dependency-free wheel smoke test.
 - Updated website, guide, examples, and deployment notes for the current AutoML
   and native ONNX-ML capabilities.
 
