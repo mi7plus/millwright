@@ -2002,7 +2002,7 @@ checksum = "38d1115007560874e373613744c6fba374c17688327a71c1476d1a5954cc857b"
 
 [[package]]
 name = "millwright"
-version = "2.2.2"
+version = "2.2.3"
 dependencies = [
  "axum",
  "chronos-ts",

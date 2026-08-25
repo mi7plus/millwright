@@ -103,6 +103,17 @@ def test_voting_and_automl_are_first_class_python_apis(tmp_path: Path):
     assert isinstance(result.candidate_failures(), list)
     assert isinstance(result.ensemble_failures(), list)
     assert isinstance(result.refit_failures(), list)
+    assert result.elapsed_seconds >= 0.0
+    assert result.attempted_trials >= result.completed_trials > 0
+    assert result.attempted_ensemble_trials >= result.completed_ensemble_trials
+    assert isinstance(result.budget_exhausted, bool)
+    assert isinstance(result.ensemble_search_skipped_by_budget, bool)
+    assert isinstance(result.supports_proba, bool)
+    if result.supports_proba:
+        assert result.predict_proba(frame).shape == (len(labels), 2)
+    else:
+        with pytest.raises(ValueError, match="probability"):
+            result.predict_proba(frame)
     fitted = result.best_model()
     assert len(fitted.predict(frame)) == len(labels)
     if "logistic" in result.best_label or "voting-soft" in result.best_label:

@@ -243,23 +243,30 @@ impl AutoML {
         };
 
         let mut candidate_failures = Vec::new();
+        let mut attempted_trials = 0usize;
+        let mut completed_trials = 0usize;
         let mut board: Vec<(String, f64, Pipeline)> = if self.parallel {
             // Candidate-level parallelism: evaluate the (capped) candidate set
             // concurrently. Each CV run is itself fold-parallel; rayon nests fine.
             use rayon::prelude::*;
-            candidates
-                .into_iter()
-                .take(trial_cap)
-                .collect::<Vec<_>>()
+            let selected = candidates.into_iter().take(trial_cap).collect::<Vec<_>>();
+            attempted_trials = selected.len();
+            let evaluated = selected
                 .into_par_iter()
                 .map(|(label, pipe)| {
                     let score = cross_val_score(&pipe, dataset, self.cv.as_ref(), self.metric);
                     (label, pipe, score)
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            completed_trials = evaluated.len();
+            evaluated
                 .into_iter()
                 .filter_map(|(label, pipe, score)| match score {
-                    Ok(score) => Some((label, score, pipe)),
+                    Ok(score) if score.is_finite() => Some((label, score, pipe)),
+                    Ok(score) => {
+                        candidate_failures.push((label, non_finite_score_error(score)));
+                        None
+                    }
                     Err(error) => {
                         candidate_failures.push((label, error.to_string()));
                         None
@@ -274,10 +281,13 @@ impl AutoML {
                         break;
                     }
                 }
+                attempted_trials += 1;
                 match cross_val_score(&pipe, dataset, self.cv.as_ref(), self.metric) {
-                    Ok(score) => board.push((label, score, pipe)),
+                    Ok(score) if score.is_finite() => board.push((label, score, pipe)),
+                    Ok(score) => candidate_failures.push((label, non_finite_score_error(score))),
                     Err(error) => candidate_failures.push((label, error.to_string())),
                 }
+                completed_trials += 1;
             }
             board
         };
@@ -298,8 +308,10 @@ impl AutoML {
         }
         sort_board(&mut board, self.metric.greater_is_better());
 
+        let ensemble_search_skipped_by_budget =
+            self.ensemble && board.len() >= 2 && budget_expired(start, self.budget);
         let ensemble_models =
-            if self.ensemble && board.len() >= 2 && !budget_expired(start, self.budget) {
+            if self.ensemble && board.len() >= 2 && !ensemble_search_skipped_by_budget {
                 build_ensembles(
                     self.task,
                     &board,
@@ -313,14 +325,19 @@ impl AutoML {
             };
         let mut ensemble_entries = Vec::new();
         let mut ensemble_failures = Vec::new();
+        let mut attempted_ensemble_trials = 0usize;
+        let mut completed_ensemble_trials = 0usize;
         for (label, model) in &ensemble_models {
             if budget_expired(start, self.budget) {
                 break;
             }
+            attempted_ensemble_trials += 1;
             match cross_val_score(model.as_ref(), dataset, self.cv.as_ref(), self.metric) {
-                Ok(score) => ensemble_entries.push((label.clone(), score)),
+                Ok(score) if score.is_finite() => ensemble_entries.push((label.clone(), score)),
+                Ok(score) => ensemble_failures.push((label.clone(), non_finite_score_error(score))),
                 Err(error) => ensemble_failures.push((label.clone(), error.to_string())),
             }
+            completed_ensemble_trials += 1;
         }
 
         // The leaderboard is every single candidate plus the ensemble entry.
@@ -342,6 +359,8 @@ impl AutoML {
         // completed search.
         let (winner, label, score, refit_failures) =
             refit_ranked(&leaderboard, &board, &ensemble_models, dataset)?;
+        let budget_exhausted = budget_expired(start, self.budget);
+        let elapsed_seconds = start.elapsed().as_secs_f64();
 
         Ok(AutoMLResult {
             winner,
@@ -351,6 +370,13 @@ impl AutoML {
             candidate_failures,
             ensemble_failures,
             refit_failures,
+            elapsed_seconds,
+            attempted_trials,
+            completed_trials,
+            attempted_ensemble_trials,
+            completed_ensemble_trials,
+            budget_exhausted,
+            ensemble_search_skipped_by_budget,
         })
     }
 }
@@ -369,6 +395,13 @@ pub struct AutoMLResult {
     candidate_failures: Vec<(String, String)>,
     ensemble_failures: Vec<(String, String)>,
     refit_failures: Vec<(String, String)>,
+    elapsed_seconds: f64,
+    attempted_trials: usize,
+    completed_trials: usize,
+    attempted_ensemble_trials: usize,
+    completed_ensemble_trials: usize,
+    budget_exhausted: bool,
+    ensemble_search_skipped_by_budget: bool,
 }
 
 impl AutoMLResult {
@@ -380,6 +413,62 @@ impl AutoMLResult {
     /// The winner's cross-validated score.
     pub fn best_score(&self) -> f64 {
         self.score
+    }
+
+    /// Wall-clock time spent searching and refitting the winner.
+    pub fn elapsed_seconds(&self) -> f64 {
+        self.elapsed_seconds
+    }
+
+    /// Candidate CV trials that were started.
+    pub fn attempted_trials(&self) -> usize {
+        self.attempted_trials
+    }
+
+    /// Candidate CV trials that returned either a score or an error.
+    pub fn completed_trials(&self) -> usize {
+        self.completed_trials
+    }
+
+    /// Ensemble CV trials that were started.
+    pub fn attempted_ensemble_trials(&self) -> usize {
+        self.attempted_ensemble_trials
+    }
+
+    /// Ensemble CV trials that returned either a score or an error.
+    pub fn completed_ensemble_trials(&self) -> usize {
+        self.completed_ensemble_trials
+    }
+
+    /// Whether the soft wall-clock budget had elapsed before the result returned.
+    pub fn budget_exhausted(&self) -> bool {
+        self.budget_exhausted
+    }
+
+    /// Whether ensemble search was omitted because the soft budget had elapsed.
+    pub fn ensemble_search_skipped_by_budget(&self) -> bool {
+        self.ensemble_search_skipped_by_budget
+    }
+
+    /// Whether the fitted winner can produce class probabilities.
+    pub fn supports_proba(&self) -> bool {
+        match &self.winner {
+            Winner::Single(pipeline) => pipeline.supports_proba(),
+            Winner::Ensemble(model) => model.supports_proba(),
+        }
+    }
+
+    /// Return class probabilities when the fitted winner supports them.
+    pub fn predict_proba(&self, frame: &Frame) -> Result<Frame> {
+        if !self.supports_proba() {
+            return Err(Error::Pipeline(
+                "AutoML winner does not support probability prediction".into(),
+            ));
+        }
+        match &self.winner {
+            Winner::Single(pipeline) => pipeline.predict_proba_dyn(frame),
+            Winner::Ensemble(model) => model.predict_proba_dyn(frame),
+        }
     }
 
     /// The best single pipeline, if a pipeline (not an ensemble) won. Use
@@ -578,6 +667,10 @@ fn stacking_candidate(
 
 fn budget_expired(start: std::time::Instant, budget: Budget) -> bool {
     matches!(budget, Budget::Minutes(minutes) if start.elapsed().as_secs_f64() >= minutes * 60.0)
+}
+
+fn non_finite_score_error(score: f64) -> String {
+    format!("cross-validation returned a non-finite score ({score})")
 }
 
 type RefitOutcome = (Winner, String, f64, Vec<(String, String)>);
@@ -829,6 +922,9 @@ mod tests {
             result.leaderboard()
         );
         assert!(!result.leaderboard().is_empty());
+        assert!(result.elapsed_seconds().is_finite());
+        assert!(result.attempted_trials() > 0);
+        assert_eq!(result.attempted_trials(), result.completed_trials());
 
         let probe = Frame::from_rows(
             vec![vec![0.1, 0.1], vec![9.2, 9.2]],
@@ -860,6 +956,12 @@ mod tests {
         assert!(result.best_ensemble().is_some());
         assert!(result.best_pipeline().is_none());
         assert!(result.best_label().starts_with("ensemble:voting-"));
+        if !result.supports_proba() {
+            let probe =
+                Frame::from_rows(vec![vec![0.1, 0.1]], vec!["a".into(), "b".into()]).unwrap();
+            let error = result.predict_proba(&probe).unwrap_err();
+            assert!(error.to_string().contains("probability prediction"));
+        }
     }
 
     #[cfg(feature = "onnx")]
@@ -878,6 +980,13 @@ mod tests {
             candidate_failures: Vec::new(),
             ensemble_failures: Vec::new(),
             refit_failures: Vec::new(),
+            elapsed_seconds: 0.0,
+            attempted_trials: 0,
+            completed_trials: 0,
+            attempted_ensemble_trials: 0,
+            completed_ensemble_trials: 0,
+            budget_exhausted: false,
+            ensemble_search_skipped_by_budget: false,
         };
         let path = std::env::temp_dir().join(format!(
             "millwright-automl-ensemble-{}.onnx",
@@ -894,6 +1003,8 @@ mod tests {
             loaded.predict(&probe).unwrap(),
             result.predict(&probe).unwrap()
         );
+        assert!(result.supports_proba());
+        assert_eq!(result.predict_proba(&probe).unwrap().shape(), (2, 2));
         std::fs::remove_file(path).ok();
     }
 
@@ -950,6 +1061,21 @@ mod tests {
             .parallel()
             .fit(&ds)
             .is_err());
+    }
+
+    #[test]
+    fn non_finite_scores_are_not_viable_candidates() {
+        let features =
+            Frame::from_rows((0..12).map(|i| vec![i as f64]).collect(), vec!["x".into()]).unwrap();
+        let dataset = Dataset::new(features, vec![1.0; 12]).unwrap();
+        let error = AutoML::regressor()
+            .budget(Budget::trials(3))
+            .cv(KFold::new(3))
+            .no_ensemble()
+            .fit(&dataset)
+            .err()
+            .expect("all-NaN R2 search must fail");
+        assert!(error.to_string().contains("non-finite score"));
     }
 
     #[test]

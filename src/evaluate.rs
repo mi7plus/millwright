@@ -142,31 +142,16 @@ fn classification_metrics(y_true: &[f64], y_pred: &[f64]) -> Vec<(String, f64)> 
         .chain(y_pred)
         .map(|v| v.round() as i64)
         .collect();
-    let (mut prec_sum, mut rec_sum, mut f1_sum) = (0.0, 0.0, 0.0);
-    for &c in &classes {
-        let mut tp = 0.0;
-        let mut fp = 0.0;
-        let mut fn_ = 0.0;
-        for (t, p) in y_true.iter().zip(y_pred) {
-            let (t, p) = (t.round() as i64, p.round() as i64);
-            match (t == c, p == c) {
-                (true, true) => tp += 1.0,
-                (false, true) => fp += 1.0,
-                (true, false) => fn_ += 1.0,
-                (false, false) => {}
-            }
-        }
-        let precision = if tp + fp > 0.0 { tp / (tp + fp) } else { 0.0 };
-        let recall = if tp + fn_ > 0.0 { tp / (tp + fn_) } else { 0.0 };
-        let f1 = if precision + recall > 0.0 {
-            2.0 * precision * recall / (precision + recall)
-        } else {
-            0.0
-        };
-        prec_sum += precision;
-        rec_sum += recall;
-        f1_sum += f1;
-    }
+    let (prec_sum, rec_sum, f1_sum) = classes
+        .iter()
+        .map(|class| class_metrics(*class, y_true, y_pred))
+        .fold((0.0, 0.0, 0.0), |totals, metrics| {
+            (
+                totals.0 + metrics.0,
+                totals.1 + metrics.1,
+                totals.2 + metrics.2,
+            )
+        });
     let k = classes.len().max(1) as f64;
     vec![
         ("accuracy".into(), accuracy),
@@ -174,6 +159,33 @@ fn classification_metrics(y_true: &[f64], y_pred: &[f64]) -> Vec<(String, f64)> 
         ("recall".into(), rec_sum / k),
         ("f1".into(), f1_sum / k),
     ]
+}
+
+fn class_metrics(class: i64, y_true: &[f64], y_pred: &[f64]) -> (f64, f64, f64) {
+    let (tp, fp, false_negatives) = y_true.iter().zip(y_pred).fold(
+        (0.0, 0.0, 0.0),
+        |(tp, fp, false_negatives), (truth, prediction)| match (
+            truth.round() as i64 == class,
+            prediction.round() as i64 == class,
+        ) {
+            (true, true) => (tp + 1.0, fp, false_negatives),
+            (false, true) => (tp, fp + 1.0, false_negatives),
+            (true, false) => (tp, fp, false_negatives + 1.0),
+            (false, false) => (tp, fp, false_negatives),
+        },
+    );
+    let precision = safe_ratio(tp, tp + fp);
+    let recall = safe_ratio(tp, tp + false_negatives);
+    let f1 = safe_ratio(2.0 * precision * recall, precision + recall);
+    (precision, recall, f1)
+}
+
+fn safe_ratio(numerator: f64, denominator: f64) -> f64 {
+    if denominator > 0.0 {
+        numerator / denominator
+    } else {
+        0.0
+    }
 }
 
 /// Convenience: any [`Predictor`] can `evaluate` itself on a test set.

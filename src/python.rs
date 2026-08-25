@@ -1157,6 +1157,46 @@ impl PyAutoMLResult {
         self.inner.refit_failures().to_vec()
     }
 
+    #[getter]
+    fn elapsed_seconds(&self) -> f64 {
+        self.inner.elapsed_seconds()
+    }
+
+    #[getter]
+    fn attempted_trials(&self) -> usize {
+        self.inner.attempted_trials()
+    }
+
+    #[getter]
+    fn completed_trials(&self) -> usize {
+        self.inner.completed_trials()
+    }
+
+    #[getter]
+    fn attempted_ensemble_trials(&self) -> usize {
+        self.inner.attempted_ensemble_trials()
+    }
+
+    #[getter]
+    fn completed_ensemble_trials(&self) -> usize {
+        self.inner.completed_ensemble_trials()
+    }
+
+    #[getter]
+    fn budget_exhausted(&self) -> bool {
+        self.inner.budget_exhausted()
+    }
+
+    #[getter]
+    fn ensemble_search_skipped_by_budget(&self) -> bool {
+        self.inner.ensemble_search_skipped_by_budget()
+    }
+
+    #[getter]
+    fn supports_proba(&self) -> bool {
+        self.inner.supports_proba()
+    }
+
     fn best_pipeline(&self) -> Option<PyPipeline> {
         self.inner.best_pipeline().map(|pipeline| PyPipeline {
             inner: pipeline.clone(),
@@ -1172,6 +1212,15 @@ impl PyAutoMLResult {
 
     fn predict(&self, data: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
         self.inner.predict(&frame_arg(data)?).map_err(to_py_err)
+    }
+
+    fn predict_proba(&self, data: &Bound<'_, PyAny>) -> PyResult<PyFrame> {
+        Ok(PyFrame {
+            inner: self
+                .inner
+                .predict_proba(&frame_arg(data)?)
+                .map_err(to_py_err)?,
+        })
     }
 
     fn export_onnx(&self, path: String) -> PyResult<()> {
