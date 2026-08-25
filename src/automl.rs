@@ -460,6 +460,11 @@ impl AutoMLResult {
 
     /// Return class probabilities when the fitted winner supports them.
     pub fn predict_proba(&self, frame: &Frame) -> Result<Frame> {
+        if !self.supports_proba() {
+            return Err(Error::Pipeline(
+                "AutoML winner does not support probability prediction".into(),
+            ));
+        }
         match &self.winner {
             Winner::Single(pipeline) => pipeline.predict_proba_dyn(frame),
             Winner::Ensemble(model) => model.predict_proba_dyn(frame),
@@ -951,6 +956,12 @@ mod tests {
         assert!(result.best_ensemble().is_some());
         assert!(result.best_pipeline().is_none());
         assert!(result.best_label().starts_with("ensemble:voting-"));
+        if !result.supports_proba() {
+            let probe =
+                Frame::from_rows(vec![vec![0.1, 0.1]], vec!["a".into(), "b".into()]).unwrap();
+            let error = result.predict_proba(&probe).unwrap_err();
+            assert!(error.to_string().contains("probability prediction"));
+        }
     }
 
     #[cfg(feature = "onnx")]
