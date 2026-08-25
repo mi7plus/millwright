@@ -43,6 +43,7 @@ def sync(version: str, *, check: bool) -> list[str]:
             rf'\g<1>{version}\2',
         ),
         ("pyproject.toml", r'(?m)^version = "[^"]+"', f'version = "{version}"'),
+        ("GUIDE.md", r'(?m)^millwright = "[^"]+"', f'millwright = "{version}"'),
         ("index.html", r'<span class="ver">v[^<]+</span>', f'<span class="ver">v{version}</span>'),
         ("guide.html", r'<title>Millwright v[^<]+ · Guide</title>', f'<title>Millwright v{version} · Guide</title>'),
         ("guide.html", r'<meta name="millwright-version" content="[^"]+">', f'<meta name="millwright-version" content="{version}">'),

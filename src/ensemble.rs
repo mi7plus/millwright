@@ -13,9 +13,10 @@
 //! - [`Stacking`] — a meta-learner over the base models' leak-free out-of-fold
 //!   predictions (requires the `model-selection` feature for the CV engine).
 //!
-//! Classification vs. regression is inferred from the training target: an
-//! all-integral target is treated as class labels (aggregated by vote); any
-//! other target is treated as regression (aggregated by mean).
+//! Classification vs. regression can be selected explicitly with
+//! [`EnsembleTask`]. The default [`EnsembleTask::Infer`] mode preserves the
+//! convenience of inferring integral targets as class labels; use
+//! [`EnsembleTask::Regression`] for integer-valued regression targets.
 //!
 //! Soft voting requires every member to expose class probabilities and averages
 //! those probabilities. Use hard voting for estimators that only predict labels.
@@ -34,6 +35,26 @@ fn classes_of(target: &[f64]) -> Vec<i64> {
     c.sort_unstable();
     c.dedup();
     c
+}
+
+/// How an ensemble interprets its training target.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EnsembleTask {
+    /// Infer classification from an all-integral target (backward compatible).
+    #[default]
+    Infer,
+    /// Treat the target as class labels and aggregate with voting.
+    Classification,
+    /// Treat the target as a continuous response and aggregate with a mean.
+    Regression,
+}
+
+fn target_classes(task: EnsembleTask, target: &[f64]) -> Option<Vec<i64>> {
+    match task {
+        EnsembleTask::Infer => is_classification(target).then(|| classes_of(target)),
+        EnsembleTask::Classification => Some(classes_of(target)),
+        EnsembleTask::Regression => None,
+    }
 }
 
 /// Majority vote (classification) or mean (regression) across members' row
@@ -111,6 +132,7 @@ pub struct Voting {
     members: Vec<(String, Box<dyn Model>)>,
     classes: Option<Vec<i64>>,
     fitted: bool,
+    task: EnsembleTask,
 }
 
 impl Voting {
@@ -121,6 +143,7 @@ impl Voting {
             members: Vec::new(),
             classes: None,
             fitted: false,
+            task: EnsembleTask::Infer,
         }
     }
 
@@ -131,12 +154,19 @@ impl Voting {
             members: Vec::new(),
             classes: None,
             fitted: false,
+            task: EnsembleTask::Infer,
         }
     }
 
     /// Add a named member model. Builder-style.
     pub fn add(mut self, name: impl Into<String>, model: impl Model + 'static) -> Self {
         self.members.push((name.into(), Box::new(model)));
+        self
+    }
+
+    /// Select classification or regression semantics explicitly.
+    pub fn task(mut self, task: EnsembleTask) -> Self {
+        self.task = task;
         self
     }
 
@@ -169,7 +199,7 @@ impl Estimator for Voting {
         if self.members.is_empty() {
             return Err(Error::Pipeline("Voting has no members".into()));
         }
-        self.classes = is_classification(dataset.target()).then(|| classes_of(dataset.target()));
+        self.classes = target_classes(self.task, dataset.target());
         if self.kind == VotingKind::Soft && self.classes.is_none() {
             return Err(Error::Pipeline(
                 "soft voting is only available for classification; use hard voting for regression"
@@ -287,6 +317,7 @@ pub struct Bagging {
     members: Vec<Box<dyn Model>>,
     classes: Option<Vec<i64>>,
     fitted: bool,
+    task: EnsembleTask,
 }
 
 impl Bagging {
@@ -299,6 +330,7 @@ impl Bagging {
             members: Vec::new(),
             classes: None,
             fitted: false,
+            task: EnsembleTask::Infer,
         }
     }
 
@@ -313,6 +345,12 @@ impl Bagging {
         self.seed = seed;
         self
     }
+
+    /// Select classification or regression aggregation explicitly.
+    pub fn task(mut self, task: EnsembleTask) -> Self {
+        self.task = task;
+        self
+    }
 }
 
 impl Estimator for Bagging {
@@ -324,7 +362,7 @@ impl Estimator for Bagging {
         if self.n_estimators == 0 {
             return Err(Error::Pipeline("Bagging needs n_estimators >= 1".into()));
         }
-        self.classes = is_classification(dataset.target()).then(|| classes_of(dataset.target()));
+        self.classes = target_classes(self.task, dataset.target());
         let n = dataset.features().nrows();
 
         // Draw the bootstrap index sets sequentially (deterministic RNG), then
@@ -639,6 +677,12 @@ impl Stacking {
     /// Set the CV strategy used to build out-of-fold meta-features.
     pub fn cv(mut self, cv: impl crate::selection::CrossValidator + 'static) -> Self {
         self.cv = Box::new(cv);
+        self
+    }
+
+    #[cfg(feature = "automl")]
+    pub(crate) fn boxed_cv(mut self, cv: Box<dyn crate::selection::CrossValidator>) -> Self {
+        self.cv = cv;
         self
     }
 

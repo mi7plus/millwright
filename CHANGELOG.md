@@ -6,6 +6,20 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- First-class Python bindings and type stubs for voting, bagging, boosting,
+  stacking, and AutoML, including ONNX export and ensemble diagnostics.
+- Explicit classification/regression semantics for ensembles, avoiding
+  accidental voting over integer-valued regression targets.
+
+### Fixed
+- Preserve domain-specific opset imports while composing ONNX ensemble graphs;
+  CI now checks tree ensembles with the official ONNX checker.
+- AutoML stacking inherits the configured CV strategy, and failed ensemble
+  candidates are retained as inspectable diagnostics instead of disappearing.
+- Updated website, guide, examples, and deployment notes for the current AutoML
+  and native ONNX-ML capabilities.
+
 ## [2.2.2] - 2026-08-24
 
 ### Added

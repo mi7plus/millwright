@@ -77,6 +77,18 @@ best = (mw.GridSearch(pipe, {<span class="s">"rf__max_depth"</span>: [<span clas
     .fit(train, y_train))
 best.best_score; best.best_params()
 
+<span class="c"># manual ensembles and full AutoML are first-class APIs too</span>
+another_pipe = mw.Pipeline().estimator(<span class="s">"rf"</span>, mw.RandomForest(n_trees=<span class="k">120</span>))
+vote = (mw.Voting(<span class="s">"hard"</span>, <span class="s">"classification"</span>)
+    .add(<span class="s">"rf1"</span>, pipe)
+    .add(<span class="s">"rf2"</span>, another_pipe))
+vote.fit(train, y_train)
+
+auto = (mw.AutoML.classifier().budget_trials(<span class="k">40</span>)
+    .ensemble_kinds([<span class="s">"voting"</span>, <span class="s">"bagging"</span>, <span class="s">"boosting"</span>, <span class="s">"stacking"</span>])
+    .fit(train, y_train))
+auto.export_onnx(<span class="s">"automl.onnx"</span>)
+
 <span class="c"># SHAP importance, and one portable ONNX artifact</span>
 pipe.fit(train, y_train)
 pipe.explain(test)                           <span class="c"># [(feature, mean|shap|), …]</span>
@@ -85,7 +97,7 @@ pipe.export_onnx(<span class="s">"churn.onnx"</span>)
 <span class="c"># consume an external sklearn / PyTorch model (exported to ONNX) as a step</span>
 ext = mw.<span class="f">Pipeline</span>().estimator(<span class="s">"onnx"</span>, mw.OnnxModel(<span class="s">"model.onnx"</span>))</pre>
       <div class="callout"><b>Note.</b> ONNX export folds affine preprocessing (scalers) into the graph; a non-affine step (impute, one-hot) raises, naming the step. Fit / predict / evaluate / explain work with any steps.</div>
-      <p class="tiny"><code class="inl">python</code> is deliberately not part of <code class="inl">full</code>: pyo3's <code class="inl">extension-module</code> defers libpython symbols, so a plain <code class="inl">cargo test</code> can't link it. It is built and tested the way it ships — as a wheel. To build from source, from a virtualenv: <code class="inl">maturin develop --features python</code>. The wheel bundles the EDA (polars), model-selection, explain, and ONNX engines.</p>
+      <p class="tiny"><code class="inl">python</code> is deliberately not part of <code class="inl">full</code>: pyo3's <code class="inl">extension-module</code> defers libpython symbols, so a plain <code class="inl">cargo test</code> can't link it. It is built and tested the way it ships — as a wheel. To build from source, from a virtualenv: <code class="inl">maturin develop --features python</code>. The wheel bundles EDA, model selection, ensembles, AutoML, explainability, and ONNX.</p>
     </div>
   </section>
 

@@ -37,8 +37,11 @@ use crate::error::Error;
 use crate::evaluate::Report;
 use crate::frame::{Dataset, Frame};
 use crate::pipeline::Pipeline as CorePipeline;
-use crate::traits::{Estimator, Predictor};
+use crate::traits::{Estimator, Model, Predictor};
 use crate::transform::{MinMaxScaler, OneHotEncoder, SimpleImputer, StandardScaler};
+
+use crate::automl::{AutoML, AutoMLResult, Budget, EnsembleKind};
+use crate::ensemble::{Bagging, Boosting, EnsembleTask, Stacking, Voting};
 
 #[cfg(feature = "model-selection")]
 use crate::selection::{GridSearch, KFold, Metric, ParamGrid, SearchResult, StratifiedKFold};
@@ -682,6 +685,385 @@ fn parse_metric(s: &str) -> PyResult<Metric> {
     })
 }
 
+fn parse_ensemble_task(task: &str) -> PyResult<EnsembleTask> {
+    match task.to_ascii_lowercase().as_str() {
+        "infer" => Ok(EnsembleTask::Infer),
+        "classification" | "classifier" => Ok(EnsembleTask::Classification),
+        "regression" | "regressor" => Ok(EnsembleTask::Regression),
+        other => Err(PyValueError::new_err(format!(
+            "unknown ensemble task '{other}'; expected infer, classification, or regression"
+        ))),
+    }
+}
+
+fn fit_ensemble(model: &mut dyn Model, data: &Bound<'_, PyAny>, labels: Vec<f64>) -> PyResult<()> {
+    let dataset = Dataset::new(frame_arg(data)?, labels).map_err(to_py_err)?;
+    model.fit(&dataset).map_err(to_py_err)
+}
+
+fn predict_ensemble(model: &dyn Model, data: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+    model.predict(&frame_arg(data)?).map_err(to_py_err)
+}
+
+fn export_ensemble(model: &dyn Model, path: String) -> PyResult<()> {
+    let proto = model.to_onnx_proto().map_err(to_py_err)?;
+    onnx_export_rs::graph_builder::save_to_file(&proto, path)
+        .map_err(|error| PyValueError::new_err(format!("ONNX save failed: {error}")))
+}
+
+/// A hard- or soft-voting ensemble over Python `Pipeline` objects.
+#[pyclass(name = "Voting", unsendable)]
+struct PyVoting {
+    inner: Voting,
+}
+
+#[pymethods]
+impl PyVoting {
+    #[new]
+    #[pyo3(signature = (kind="hard", task="infer"))]
+    fn new(kind: &str, task: &str) -> PyResult<Self> {
+        let inner = match kind.to_ascii_lowercase().as_str() {
+            "hard" => Voting::hard(),
+            "soft" => Voting::soft(),
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown voting kind '{other}'"
+                )))
+            }
+        };
+        Ok(Self {
+            inner: inner.task(parse_ensemble_task(task)?),
+        })
+    }
+
+    fn add<'a>(
+        mut slf: PyRefMut<'a, Self>,
+        name: String,
+        pipeline: PyRef<'_, PyPipeline>,
+    ) -> PyRefMut<'a, Self> {
+        slf.inner = slf.inner.clone().add(name, pipeline.inner.clone());
+        slf
+    }
+
+    fn fit(&mut self, data: &Bound<'_, PyAny>, labels: Vec<f64>) -> PyResult<()> {
+        fit_ensemble(&mut self.inner, data, labels)
+    }
+    fn predict(&self, data: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+        predict_ensemble(&self.inner, data)
+    }
+    fn export_onnx(&self, path: String) -> PyResult<()> {
+        export_ensemble(&self.inner, path)
+    }
+}
+
+/// Bootstrap aggregation over a Python `Pipeline` base estimator.
+#[pyclass(name = "Bagging", unsendable)]
+struct PyBagging {
+    inner: Bagging,
+}
+
+#[pymethods]
+impl PyBagging {
+    #[new]
+    #[pyo3(signature = (base, n_estimators=10, seed=0, task="infer"))]
+    fn new(
+        base: PyRef<'_, PyPipeline>,
+        n_estimators: usize,
+        seed: u64,
+        task: &str,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: Bagging::of(base.inner.clone())
+                .n_estimators(n_estimators)
+                .seed(seed)
+                .task(parse_ensemble_task(task)?),
+        })
+    }
+
+    fn fit(&mut self, data: &Bound<'_, PyAny>, labels: Vec<f64>) -> PyResult<()> {
+        fit_ensemble(&mut self.inner, data, labels)
+    }
+    fn predict(&self, data: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+        predict_ensemble(&self.inner, data)
+    }
+    fn export_onnx(&self, path: String) -> PyResult<()> {
+        export_ensemble(&self.inner, path)
+    }
+}
+
+/// SAMME boosting over a Python `Pipeline` classifier.
+#[pyclass(name = "Boosting", unsendable)]
+struct PyBoosting {
+    inner: Boosting,
+}
+
+#[pymethods]
+impl PyBoosting {
+    #[new]
+    #[pyo3(signature = (base, n_estimators=50, learning_rate=1.0, seed=0))]
+    fn new(
+        base: PyRef<'_, PyPipeline>,
+        n_estimators: usize,
+        learning_rate: f64,
+        seed: u64,
+    ) -> Self {
+        Self {
+            inner: Boosting::of(base.inner.clone())
+                .n_estimators(n_estimators)
+                .learning_rate(learning_rate)
+                .seed(seed),
+        }
+    }
+
+    fn fit(&mut self, data: &Bound<'_, PyAny>, labels: Vec<f64>) -> PyResult<()> {
+        fit_ensemble(&mut self.inner, data, labels)
+    }
+    fn predict(&self, data: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+        predict_ensemble(&self.inner, data)
+    }
+    fn export_onnx(&self, path: String) -> PyResult<()> {
+        export_ensemble(&self.inner, path)
+    }
+}
+
+/// Leak-free stacking over Python `Pipeline` objects.
+#[pyclass(name = "Stacking", unsendable)]
+struct PyStacking {
+    inner: Stacking,
+}
+
+#[pymethods]
+impl PyStacking {
+    #[new]
+    #[pyo3(signature = (meta, cv=None))]
+    fn new(meta: PyRef<'_, PyPipeline>, cv: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let model = Stacking::meta(meta.inner.clone());
+        let model = match parse_cv(cv)? {
+            CvSpec::KFold(k) => model.cv(KFold::new(k)),
+            CvSpec::Stratified(k) => model.cv(StratifiedKFold::new(k)),
+        };
+        Ok(Self { inner: model })
+    }
+
+    fn base<'a>(
+        mut slf: PyRefMut<'a, Self>,
+        name: String,
+        pipeline: PyRef<'_, PyPipeline>,
+    ) -> PyRefMut<'a, Self> {
+        slf.inner = slf.inner.clone().base(name, pipeline.inner.clone());
+        slf
+    }
+
+    fn fit(&mut self, data: &Bound<'_, PyAny>, labels: Vec<f64>) -> PyResult<()> {
+        fit_ensemble(&mut self.inner, data, labels)
+    }
+    fn predict(&self, data: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+        predict_ensemble(&self.inner, data)
+    }
+    fn export_onnx(&self, path: String) -> PyResult<()> {
+        export_ensemble(&self.inner, path)
+    }
+}
+
+fn parse_ensemble_kind(kind: &str) -> PyResult<EnsembleKind> {
+    match kind.to_ascii_lowercase().as_str() {
+        "voting" => Ok(EnsembleKind::Voting),
+        "bagging" => Ok(EnsembleKind::Bagging),
+        "boosting" => Ok(EnsembleKind::Boosting),
+        "stacking" => Ok(EnsembleKind::Stacking),
+        other => Err(PyValueError::new_err(format!(
+            "unknown ensemble kind '{other}'"
+        ))),
+    }
+}
+
+/// Automated preprocessing, model, hyperparameter, and ensemble search.
+#[pyclass(name = "AutoML", unsendable)]
+struct PyAutoML {
+    classifier: bool,
+    trials: usize,
+    metric: Metric,
+    cv: CvSpec,
+    seed: u64,
+    ensemble: bool,
+    ensemble_size: usize,
+    ensemble_kinds: Vec<EnsembleKind>,
+    prefer_ensemble: bool,
+    parallel: bool,
+}
+
+#[pymethods]
+impl PyAutoML {
+    #[staticmethod]
+    fn classifier() -> Self {
+        Self {
+            classifier: true,
+            trials: 40,
+            metric: Metric::Accuracy,
+            cv: CvSpec::Stratified(5),
+            seed: 0,
+            ensemble: true,
+            ensemble_size: 3,
+            ensemble_kinds: vec![
+                EnsembleKind::Voting,
+                EnsembleKind::Bagging,
+                EnsembleKind::Boosting,
+                EnsembleKind::Stacking,
+            ],
+            prefer_ensemble: false,
+            parallel: false,
+        }
+    }
+
+    #[staticmethod]
+    fn regressor() -> Self {
+        Self {
+            classifier: false,
+            trials: 40,
+            metric: Metric::R2,
+            cv: CvSpec::KFold(5),
+            seed: 0,
+            ensemble: true,
+            ensemble_size: 3,
+            ensemble_kinds: vec![
+                EnsembleKind::Voting,
+                EnsembleKind::Bagging,
+                EnsembleKind::Stacking,
+            ],
+            prefer_ensemble: false,
+            parallel: false,
+        }
+    }
+
+    fn budget_trials<'a>(mut slf: PyRefMut<'a, Self>, trials: usize) -> PyRefMut<'a, Self> {
+        slf.trials = trials;
+        slf
+    }
+
+    fn scoring<'a>(mut slf: PyRefMut<'a, Self>, metric: &str) -> PyResult<PyRefMut<'a, Self>> {
+        slf.metric = parse_metric(metric)?;
+        Ok(slf)
+    }
+
+    fn cv<'a>(mut slf: PyRefMut<'a, Self>, cv: &Bound<'_, PyAny>) -> PyResult<PyRefMut<'a, Self>> {
+        slf.cv = parse_cv(Some(cv))?;
+        Ok(slf)
+    }
+
+    fn seed<'a>(mut slf: PyRefMut<'a, Self>, seed: u64) -> PyRefMut<'a, Self> {
+        slf.seed = seed;
+        slf
+    }
+
+    fn no_ensemble<'a>(mut slf: PyRefMut<'a, Self>) -> PyRefMut<'a, Self> {
+        slf.ensemble = false;
+        slf
+    }
+
+    fn ensemble_size<'a>(mut slf: PyRefMut<'a, Self>, size: usize) -> PyRefMut<'a, Self> {
+        slf.ensemble_size = size.max(2);
+        slf
+    }
+
+    fn ensemble_kinds<'a>(
+        mut slf: PyRefMut<'a, Self>,
+        kinds: Vec<String>,
+    ) -> PyResult<PyRefMut<'a, Self>> {
+        slf.ensemble_kinds = kinds
+            .iter()
+            .map(|kind| parse_ensemble_kind(kind))
+            .collect::<PyResult<_>>()?;
+        Ok(slf)
+    }
+
+    fn prefer_ensemble_on_tie<'a>(mut slf: PyRefMut<'a, Self>) -> PyRefMut<'a, Self> {
+        slf.prefer_ensemble = true;
+        slf
+    }
+
+    fn parallel<'a>(mut slf: PyRefMut<'a, Self>) -> PyRefMut<'a, Self> {
+        slf.parallel = true;
+        slf
+    }
+
+    fn fit(&self, data: &Bound<'_, PyAny>, labels: Vec<f64>) -> PyResult<PyAutoMLResult> {
+        let dataset = Dataset::new(frame_arg(data)?, labels).map_err(to_py_err)?;
+        let search = if self.classifier {
+            AutoML::classifier()
+        } else {
+            AutoML::regressor()
+        };
+        let search = search
+            .budget(Budget::trials(self.trials))
+            .metric(self.metric)
+            .seed(self.seed)
+            .ensemble_size(self.ensemble_size)
+            .ensemble_kinds(self.ensemble_kinds.clone());
+        let search = match self.cv {
+            CvSpec::KFold(k) => search.cv(KFold::new(k)),
+            CvSpec::Stratified(k) => search.cv(StratifiedKFold::new(k)),
+        };
+        let search = if self.ensemble {
+            search
+        } else {
+            search.no_ensemble()
+        };
+        let search = if self.prefer_ensemble {
+            search.prefer_ensemble_on_tie()
+        } else {
+            search
+        };
+        let search = if self.parallel {
+            search.parallel()
+        } else {
+            search
+        };
+        Ok(PyAutoMLResult {
+            inner: search.fit(&dataset).map_err(to_py_err)?,
+        })
+    }
+}
+
+/// A fitted AutoML winner and its complete leaderboard.
+#[pyclass(name = "AutoMLResult", unsendable)]
+struct PyAutoMLResult {
+    inner: AutoMLResult,
+}
+
+#[pymethods]
+impl PyAutoMLResult {
+    #[getter]
+    fn best_label(&self) -> &str {
+        self.inner.best_label()
+    }
+
+    #[getter]
+    fn best_score(&self) -> f64 {
+        self.inner.best_score()
+    }
+
+    #[getter]
+    fn is_ensemble(&self) -> bool {
+        self.inner.is_ensemble()
+    }
+
+    fn leaderboard(&self) -> String {
+        self.inner.leaderboard()
+    }
+
+    fn ensemble_failures(&self) -> Vec<(String, String)> {
+        self.inner.ensemble_failures().to_vec()
+    }
+
+    fn predict(&self, data: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+        self.inner.predict(&frame_arg(data)?).map_err(to_py_err)
+    }
+
+    fn export_onnx(&self, path: String) -> PyResult<()> {
+        self.inner.export_onnx(path).map_err(to_py_err)
+    }
+}
+
 #[cfg(feature = "model-selection")]
 fn param_value(obj: &Bound<'_, PyAny>) -> PyResult<ParamValue> {
     // Order matters: a Python `bool` also extracts as `int`.
@@ -835,6 +1217,12 @@ fn millwright(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyKnn>()?;
     m.add_class::<PySvc>()?;
     m.add_class::<PyNaiveBayes>()?;
+    m.add_class::<PyVoting>()?;
+    m.add_class::<PyBagging>()?;
+    m.add_class::<PyBoosting>()?;
+    m.add_class::<PyStacking>()?;
+    m.add_class::<PyAutoML>()?;
+    m.add_class::<PyAutoMLResult>()?;
     #[cfg(feature = "onnx")]
     m.add_class::<PyOnnxModel>()?;
     #[cfg(feature = "explain")]

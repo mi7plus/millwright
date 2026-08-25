@@ -28,8 +28,10 @@
 //! # }
 //! ```
 
-use crate::backends::smartcore::{Knn, LinearRegression, NaiveBayes, RandomForest, Svc};
-use crate::ensemble::{Bagging, Boosting, Stacking, Voting};
+#[cfg(not(feature = "onnx"))]
+use crate::backends::smartcore::{Knn, NaiveBayes, Svc};
+use crate::backends::smartcore::{LinearRegression, RandomForest};
+use crate::ensemble::{Bagging, Boosting, EnsembleTask, Stacking, Voting};
 use crate::error::{Error, Result};
 use crate::frame::{Dataset, Frame};
 use crate::logistic::LogisticRegression;
@@ -238,18 +240,19 @@ impl AutoML {
                 self.ensemble_size,
                 self.seed,
                 &self.ensemble_kinds,
+                self.cv.clone(),
             )
         } else {
             Vec::new()
         };
-        let ensemble_entries: Vec<(String, f64)> = ensemble_models
-            .iter()
-            .filter_map(|(label, model)| {
-                cross_val_score(model.as_ref(), dataset, self.cv.as_ref(), self.metric)
-                    .ok()
-                    .map(|score| (label.clone(), score))
-            })
-            .collect();
+        let mut ensemble_entries = Vec::new();
+        let mut ensemble_failures = Vec::new();
+        for (label, model) in &ensemble_models {
+            match cross_val_score(model.as_ref(), dataset, self.cv.as_ref(), self.metric) {
+                Ok(score) => ensemble_entries.push((label.clone(), score)),
+                Err(error) => ensemble_failures.push((label.clone(), error.to_string())),
+            }
+        }
 
         // The leaderboard is every single candidate plus the ensemble entry.
         let mut leaderboard: Vec<(String, f64)> =
@@ -294,6 +297,7 @@ impl AutoML {
             label,
             score,
             board: leaderboard,
+            ensemble_failures,
         })
     }
 }
@@ -309,6 +313,7 @@ pub struct AutoMLResult {
     label: String,
     score: f64,
     board: Vec<(String, f64)>,
+    ensemble_failures: Vec<(String, String)>,
 }
 
 impl AutoMLResult {
@@ -350,7 +355,18 @@ impl AutoMLResult {
         for (i, (label, score)) in self.board.iter().enumerate() {
             out.push_str(&format!("{:>4}  {score:.4}  {label}\n", i + 1));
         }
+        if !self.ensemble_failures.is_empty() {
+            out.push_str("\nfailed ensembles\n");
+            for (label, error) in &self.ensemble_failures {
+                out.push_str(&format!("  {label}: {error}\n"));
+            }
+        }
         out
+    }
+
+    /// Ensemble candidates that could not be evaluated, with their errors.
+    pub fn ensemble_failures(&self) -> &[(String, String)] {
+        &self.ensemble_failures
     }
 
     /// Export the winner to ONNX when it and all of its components support it.
@@ -374,6 +390,7 @@ fn build_ensembles(
     requested_size: usize,
     seed: u64,
     kinds: &[EnsembleKind],
+    cv: Box<dyn CrossValidator>,
 ) -> Vec<(String, Box<dyn Model>)> {
     let size = requested_size.max(2);
     let k = board.len().min(size);
@@ -383,7 +400,12 @@ fn build_ensembles(
             EnsembleKind::Voting => {
                 let soft = matches!(task, Task::Classifier)
                     && board.iter().take(k).all(|(_, _, p)| p.supports_proba());
-                let mut model = if soft { Voting::soft() } else { Voting::hard() };
+                let ensemble_task = match task {
+                    Task::Classifier => EnsembleTask::Classification,
+                    Task::Regressor => EnsembleTask::Regression,
+                };
+                let mut model =
+                    if soft { Voting::soft() } else { Voting::hard() }.task(ensemble_task);
                 for (i, (_, _, pipeline)) in board.iter().take(k).enumerate() {
                     model = model.add(format!("c{i}"), pipeline.clone());
                 }
@@ -400,7 +422,11 @@ fn build_ensembles(
                 Box::new(
                     Bagging::of(board[0].2.clone())
                         .n_estimators(size)
-                        .seed(seed),
+                        .seed(seed)
+                        .task(match task {
+                            Task::Classifier => EnsembleTask::Classification,
+                            Task::Regressor => EnsembleTask::Regression,
+                        }),
                 ),
             )),
             EnsembleKind::Boosting if matches!(task, Task::Classifier) => out.push((
@@ -419,6 +445,7 @@ fn build_ensembles(
                 for (i, (_, _, pipeline)) in board.iter().take(k).enumerate() {
                     model = model.base(format!("c{i}"), pipeline.clone());
                 }
+                model = model.boxed_cv(cv.clone());
                 out.push((format!("ensemble:stacking(top-{k})"), Box::new(model)));
             }
             EnsembleKind::Boosting => {}
@@ -505,16 +532,19 @@ fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
                 ));
             }
         }
+        #[cfg(not(feature = "onnx"))]
         for &k in &[3usize, 5, 9] {
             out.push((
                 format!("profile[{prep}] | knn(k={k})"),
                 base.clone().estimator("knn", Knn::k(k)),
             ));
         }
+        #[cfg(not(feature = "onnx"))]
         out.push((
             format!("profile[{prep}] | naive_bayes"),
             base.clone().estimator("nb", NaiveBayes::new()),
         ));
+        #[cfg(not(feature = "onnx"))]
         out.push((
             format!("profile[{prep}] | svc(linear)"),
             base.clone().estimator("svc", Svc::linear()),
@@ -552,6 +582,7 @@ fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
                 out.push((format!("{scaler} | rf(trees={n}, depth={depth_s})"), pipe));
             }
         }
+        #[cfg(not(feature = "onnx"))]
         for &k in &[3usize, 5, 9] {
             let mut pipe = Pipeline::new();
             pipe = match scaler {
@@ -564,26 +595,30 @@ fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
                 pipe.estimator("knn", Knn::k(k)),
             ));
         }
-        let mut pipe = Pipeline::new();
-        pipe = match scaler {
-            "standard" => pipe.step("scale", StandardScaler::new()),
-            "minmax" => pipe.step("scale", MinMaxScaler::new()),
-            _ => pipe,
-        };
-        out.push((
-            format!("{scaler} | naive_bayes"),
-            pipe.estimator("nb", NaiveBayes::new()),
-        ));
-        let mut pipe = Pipeline::new();
-        pipe = match scaler {
-            "standard" => pipe.step("scale", StandardScaler::new()),
-            "minmax" => pipe.step("scale", MinMaxScaler::new()),
-            _ => pipe,
-        };
-        out.push((
-            format!("{scaler} | svc(linear)"),
-            pipe.estimator("svc", Svc::linear()),
-        ));
+        #[cfg(not(feature = "onnx"))]
+        {
+            let mut pipe = Pipeline::new();
+            pipe = match scaler {
+                "standard" => pipe.step("scale", StandardScaler::new()),
+                "minmax" => pipe.step("scale", MinMaxScaler::new()),
+                _ => pipe,
+            };
+            out.push((
+                format!("{scaler} | naive_bayes"),
+                pipe.estimator("nb", NaiveBayes::new()),
+            ));
+
+            let mut pipe = Pipeline::new();
+            pipe = match scaler {
+                "standard" => pipe.step("scale", StandardScaler::new()),
+                "minmax" => pipe.step("scale", MinMaxScaler::new()),
+                _ => pipe,
+            };
+            out.push((
+                format!("{scaler} | svc(linear)"),
+                pipe.estimator("svc", Svc::linear()),
+            ));
+        }
         if class_count(dataset.target()) == 2 {
             for &l2 in &[0.0, 0.01, 0.1] {
                 let mut pipe = Pipeline::new();
@@ -717,6 +752,7 @@ mod tests {
             label: "ensemble:voting-soft(top-2)".into(),
             score: 1.0,
             board: vec![("ensemble:voting-soft(top-2)".into(), 1.0)],
+            ensemble_failures: Vec::new(),
         };
         let path = std::env::temp_dir().join(format!(
             "millwright-automl-ensemble-{}.onnx",

@@ -5,3 +5,6 @@ pipeline: mw.Pipeline = mw.Pipeline().estimator("rf", mw.RandomForest(n_trees=10
 pipeline.fit(frame, [0.0, 1.0])
 predictions: list[float] = pipeline.predict(frame)
 shape: tuple[int, int] = frame.shape
+
+voting: mw.Voting = mw.Voting("hard", "classification").add("rf", pipeline)
+automl: mw.AutoML = mw.AutoML.classifier().budget_trials(4).ensemble_kinds(["voting"])
