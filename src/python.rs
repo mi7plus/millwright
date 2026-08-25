@@ -41,7 +41,7 @@ use crate::pipeline::Pipeline as CorePipeline;
 use crate::traits::{Estimator, Model, Predictor, ProbaPredictor};
 use crate::transform::{MinMaxScaler, OneHotEncoder, SimpleImputer, StandardScaler};
 
-use crate::automl::{AutoML, AutoMLResult, Budget, EnsembleKind};
+use crate::automl::{AutoML, AutoMLResult, Budget, Deployability, EnsembleKind};
 use crate::ensemble::{Bagging, Boosting, EnsembleTask, Stacking, Voting};
 
 #[cfg(feature = "model-selection")]
@@ -579,6 +579,24 @@ impl PyPipeline {
         self.inner.predict(&frame).map_err(to_py_err)
     }
 
+    /// Return one probability column per class for a capable classifier.
+    fn predict_proba(&self, data: &Bound<'_, PyAny>) -> PyResult<PyFrame> {
+        if !self.fitted {
+            return Err(PyValueError::new_err("pipeline is not fitted"));
+        }
+        if !self.inner.supports_proba() {
+            return Err(PyValueError::new_err(
+                "pipeline estimator does not support probability prediction",
+            ));
+        }
+        Ok(PyFrame {
+            inner: self
+                .inner
+                .predict_proba_dyn(&frame_arg(data)?)
+                .map_err(to_py_err)?,
+        })
+    }
+
     /// Predict on `data` and score against `labels`, returning a metrics dict
     /// (accuracy/precision/recall/f1 for classification, mae/mse/rmse/r2 for
     /// regression — the task is inferred from the labels).
@@ -930,6 +948,7 @@ struct PyAutoML {
     ensemble_kinds: Vec<EnsembleKind>,
     prefer_ensemble: bool,
     parallel: bool,
+    deployability: Deployability,
 }
 
 #[pymethods]
@@ -953,6 +972,7 @@ impl PyAutoML {
             ],
             prefer_ensemble: false,
             parallel: false,
+            deployability: Deployability::Onnx,
         }
     }
 
@@ -974,6 +994,7 @@ impl PyAutoML {
             ],
             prefer_ensemble: false,
             parallel: false,
+            deployability: Deployability::Onnx,
         }
     }
 
@@ -1034,6 +1055,22 @@ impl PyAutoML {
         slf
     }
 
+    fn deployability<'a>(
+        mut slf: PyRefMut<'a, Self>,
+        policy: &str,
+    ) -> PyResult<PyRefMut<'a, Self>> {
+        slf.deployability = match policy.to_ascii_lowercase().as_str() {
+            "any" => Deployability::Any,
+            "onnx" => Deployability::Onnx,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "deployability must be 'any' or 'onnx'",
+                ))
+            }
+        };
+        Ok(slf)
+    }
+
     fn fit(&self, data: &Bound<'_, PyAny>, labels: Vec<f64>) -> PyResult<PyAutoMLResult> {
         let dataset = Dataset::new(frame_arg(data)?, labels).map_err(to_py_err)?;
         let search = if self.classifier {
@@ -1050,7 +1087,8 @@ impl PyAutoML {
             .metric(self.metric)
             .seed(self.seed)
             .ensemble_size(self.ensemble_size)
-            .ensemble_kinds(self.ensemble_kinds.clone());
+            .ensemble_kinds(self.ensemble_kinds.clone())
+            .deployability(self.deployability);
         let search = match self.cv {
             CvSpec::KFold(k) => search.cv(KFold::new(k)),
             CvSpec::Stratified(k) => search.cv(StratifiedKFold::new(k)),
@@ -1115,6 +1153,10 @@ impl PyAutoMLResult {
         self.inner.ensemble_failures().to_vec()
     }
 
+    fn refit_failures(&self) -> Vec<(String, String)> {
+        self.inner.refit_failures().to_vec()
+    }
+
     fn best_pipeline(&self) -> Option<PyPipeline> {
         self.inner.best_pipeline().map(|pipeline| PyPipeline {
             inner: pipeline.clone(),
@@ -1147,6 +1189,20 @@ struct PyFittedModel {
 impl PyFittedModel {
     fn predict(&self, data: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
         predict_ensemble(self.inner.as_ref(), data)
+    }
+
+    fn predict_proba(&self, data: &Bound<'_, PyAny>) -> PyResult<PyFrame> {
+        if !self.inner.supports_proba() {
+            return Err(PyValueError::new_err(
+                "fitted model does not support probability prediction",
+            ));
+        }
+        Ok(PyFrame {
+            inner: self
+                .inner
+                .predict_proba_dyn(&frame_arg(data)?)
+                .map_err(to_py_err)?,
+        })
     }
 
     fn export_onnx(&self, path: String) -> PyResult<()> {

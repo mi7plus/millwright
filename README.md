@@ -163,8 +163,9 @@ adapters — the "two ndarray worlds" the design settles, now exercised for real
 
 - **AutoML** (`src/automl.rs`, feature `automl`): `AutoML::classifier()` /
   `regressor()` searches preprocessing × model × hyperparameters under a
-  `Budget` (trials or minutes), auto-ensembles the top candidates, and returns a
-  ranked leaderboard plus the best fitted model. **No new crate** — it
+  `Budget` (trials or a soft wall-clock limit), auto-ensembles the top
+  candidates, and returns a ranked leaderboard plus the best fitted model.
+  **No new crate** — it
   orchestrates the model-selection, ensemble, and backend machinery already
   built. A single-pipeline winner flows straight into `export_onnx`, so unlike a
   TPOT object the result deploys.
@@ -174,10 +175,14 @@ let result = AutoML::classifier()
     .budget(Budget::trials(40))
     .metric(Metric::F1)
     .cv(StratifiedKFold::new(5))
+    .deployability(Deployability::Onnx) // or Any for the broadest search
     .fit(&train)?;
 println!("{}", result.leaderboard());
 for (label, error) in result.candidate_failures() {
     eprintln!("skipped {label}: {error}");
+}
+for (label, error) in result.refit_failures() {
+    eprintln!("full-data refit fell back from {label}: {error}");
 }
 result.export_onnx("model.onnx")?;   // deployable
 ```
