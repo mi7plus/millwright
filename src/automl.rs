@@ -177,8 +177,9 @@ impl AutoML {
     }
 
     /// Evaluate candidate configurations in parallel over rayon (each CV run is
-    /// already fold-parallel; this adds parallelism across candidates). Uses the
-    /// trials cap and ignores the wall-clock budget's early cutoff.
+    /// already fold-parallel; this adds parallelism across candidates). Parallel
+    /// search requires a trial budget because already-running work cannot obey a
+    /// strict wall-clock cutoff.
     pub fn parallel(mut self) -> Self {
         self.parallel = true;
         self
@@ -186,6 +187,22 @@ impl AutoML {
 
     /// Run the search and return the best deployable model with a leaderboard.
     pub fn fit(self, dataset: &Dataset) -> Result<AutoMLResult> {
+        match self.budget {
+            Budget::Trials(0) => {
+                return Err(Error::Param("AutoML trial budget must be >= 1".into()))
+            }
+            Budget::Minutes(minutes) if !minutes.is_finite() || minutes <= 0.0 => {
+                return Err(Error::Param(
+                    "AutoML minute budget must be finite and > 0".into(),
+                ))
+            }
+            Budget::Minutes(_) if self.parallel => {
+                return Err(Error::Param(
+                    "parallel AutoML requires a trial budget, not a minute budget".into(),
+                ))
+            }
+            _ => {}
+        }
         let mut candidates = match self.task {
             Task::Classifier => classifier_candidates(dataset),
             Task::Regressor => regressor_candidates(dataset),
@@ -198,6 +215,7 @@ impl AutoML {
             Budget::Minutes(_) => usize::MAX,
         };
 
+        let mut candidate_failures = Vec::new();
         let mut board: Vec<(String, f64, Pipeline)> = if self.parallel {
             // Candidate-level parallelism: evaluate the (capped) candidate set
             // concurrently. Each CV run is itself fold-parallel; rayon nests fine.
@@ -207,29 +225,49 @@ impl AutoML {
                 .take(trial_cap)
                 .collect::<Vec<_>>()
                 .into_par_iter()
-                .map(|(label, pipe)| -> Result<(String, f64, Pipeline)> {
-                    let score = cross_val_score(&pipe, dataset, self.cv.as_ref(), self.metric)?;
-                    Ok((label, score, pipe))
+                .map(|(label, pipe)| {
+                    let score = cross_val_score(&pipe, dataset, self.cv.as_ref(), self.metric);
+                    (label, pipe, score)
                 })
-                .collect::<Result<Vec<_>>>()?
+                .collect::<Vec<_>>()
+                .into_iter()
+                .filter_map(|(label, pipe, score)| match score {
+                    Ok(score) => Some((label, score, pipe)),
+                    Err(error) => {
+                        candidate_failures.push((label, error.to_string()));
+                        None
+                    }
+                })
+                .collect()
         } else {
             let mut board = Vec::new();
-            for (label, pipe) in candidates {
-                if board.len() >= trial_cap {
-                    break;
-                }
+            for (label, pipe) in candidates.into_iter().take(trial_cap) {
                 if let Budget::Minutes(m) = self.budget {
                     if start.elapsed().as_secs_f64() > m * 60.0 {
                         break;
                     }
                 }
-                let score = cross_val_score(&pipe, dataset, self.cv.as_ref(), self.metric)?;
-                board.push((label, score, pipe));
+                match cross_val_score(&pipe, dataset, self.cv.as_ref(), self.metric) {
+                    Ok(score) => board.push((label, score, pipe)),
+                    Err(error) => candidate_failures.push((label, error.to_string())),
+                }
             }
             board
         };
         if board.is_empty() {
-            return Err(Error::Pipeline("AutoML evaluated no candidates".into()));
+            let details = candidate_failures
+                .iter()
+                .map(|(label, error)| format!("{label}: {error}"))
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(Error::Pipeline(format!(
+                "AutoML found no viable candidates{}",
+                if details.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {details}")
+                }
+            )));
         }
         sort_board(&mut board, self.metric.greater_is_better());
 
@@ -277,8 +315,8 @@ impl AutoML {
             let mut model = ensemble_models
                 .into_iter()
                 .find(|(label, _)| label == &leaderboard[0].0)
-                .expect("winning ensemble must exist")
-                .1;
+                .map(|(_, model)| model)
+                .ok_or_else(|| Error::Pipeline("winning ensemble was not retained".into()))?;
             model.fit(dataset)?;
             (
                 Winner::Ensemble(model),
@@ -297,6 +335,7 @@ impl AutoML {
             label,
             score,
             board: leaderboard,
+            candidate_failures,
             ensemble_failures,
         })
     }
@@ -313,6 +352,7 @@ pub struct AutoMLResult {
     label: String,
     score: f64,
     board: Vec<(String, f64)>,
+    candidate_failures: Vec<(String, String)>,
     ensemble_failures: Vec<(String, String)>,
 }
 
@@ -355,6 +395,12 @@ impl AutoMLResult {
         for (i, (label, score)) in self.board.iter().enumerate() {
             out.push_str(&format!("{:>4}  {score:.4}  {label}\n", i + 1));
         }
+        if !self.candidate_failures.is_empty() {
+            out.push_str("\nfailed candidates\n");
+            for (label, error) in &self.candidate_failures {
+                out.push_str(&format!("  {label}: {error}\n"));
+            }
+        }
         if !self.ensemble_failures.is_empty() {
             out.push_str("\nfailed ensembles\n");
             for (label, error) in &self.ensemble_failures {
@@ -362,6 +408,24 @@ impl AutoMLResult {
             }
         }
         out
+    }
+
+    /// Ranked leaderboard entries as structured `(label, score)` values.
+    pub fn leaderboard_entries(&self) -> &[(String, f64)] {
+        &self.board
+    }
+
+    /// Individual pipeline candidates that could not be evaluated.
+    pub fn candidate_failures(&self) -> &[(String, String)] {
+        &self.candidate_failures
+    }
+
+    /// Clone the fitted winning model for type-erased integrations.
+    pub fn clone_best_model(&self) -> Box<dyn Model> {
+        match &self.winner {
+            Winner::Single(pipeline) => Box::new(pipeline.clone()),
+            Winner::Ensemble(model) => model.clone(),
+        }
     }
 
     /// Ensemble candidates that could not be evaluated, with their errors.
@@ -506,9 +570,6 @@ fn seeded_base(dataset: &Dataset) -> Option<Pipeline> {
 /// Preprocessing × classifier-family × hyperparameter candidates.
 #[cfg_attr(not(feature = "eda"), allow(unused_variables))]
 fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
-    use crate::transform::{MinMaxScaler, StandardScaler};
-    let depths = [Some(2u16), Some(4), Some(8), None];
-    let trees = [50u16, 100];
     let mut out = Vec::new();
 
     // Seed the preprocessing from EDA's suggestion; vary only the model on top.
@@ -516,132 +577,83 @@ fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
     if let Some(base) = seeded_base(dataset) {
         let prep = base.step_names().join("+");
         let prep = if prep.is_empty() { "raw".into() } else { prep };
-        for &depth in &depths {
-            for &n in &trees {
-                let mut rf = RandomForest::new().n_trees(n);
-                if let Some(d) = depth {
-                    rf = rf.max_depth(d);
-                }
-                let pipe = base.clone().estimator("rf", rf);
-                let depth_s = depth
-                    .map(|d| d.to_string())
-                    .unwrap_or_else(|| "none".into());
-                out.push((
-                    format!("profile[{prep}] | rf(trees={n}, depth={depth_s})"),
-                    pipe,
-                ));
-            }
-        }
-        #[cfg(not(feature = "onnx"))]
-        for &k in &[3usize, 5, 9] {
-            out.push((
-                format!("profile[{prep}] | knn(k={k})"),
-                base.clone().estimator("knn", Knn::k(k)),
-            ));
-        }
-        #[cfg(not(feature = "onnx"))]
-        out.push((
-            format!("profile[{prep}] | naive_bayes"),
-            base.clone().estimator("nb", NaiveBayes::new()),
-        ));
-        #[cfg(not(feature = "onnx"))]
-        out.push((
-            format!("profile[{prep}] | svc(linear)"),
-            base.clone().estimator("svc", Svc::linear()),
-        ));
-        if class_count(dataset.target()) == 2 {
-            for &l2 in &[0.0, 0.01, 0.1] {
-                out.push((
-                    format!("profile[{prep}] | logistic(l2={l2})"),
-                    base.clone()
-                        .estimator("logistic", LogisticRegression::new().l2(l2)),
-                ));
-            }
-        }
+        push_classifier_models(&mut out, &base, &format!("profile[{prep}]"), dataset);
         return out;
     }
 
     // Fallback: search the scaler as well as the model.
     for scaler in ["none", "standard", "minmax"] {
-        for &depth in &depths {
-            for &n in &trees {
-                let mut rf = RandomForest::new().n_trees(n);
-                if let Some(d) = depth {
-                    rf = rf.max_depth(d);
-                }
-                let mut pipe = Pipeline::new();
-                pipe = match scaler {
-                    "standard" => pipe.step("scale", StandardScaler::new()),
-                    "minmax" => pipe.step("scale", MinMaxScaler::new()),
-                    _ => pipe,
-                };
-                pipe = pipe.estimator("rf", rf);
-                let depth_s = depth
-                    .map(|d| d.to_string())
-                    .unwrap_or_else(|| "none".into());
-                out.push((format!("{scaler} | rf(trees={n}, depth={depth_s})"), pipe));
-            }
-        }
-        #[cfg(not(feature = "onnx"))]
-        for &k in &[3usize, 5, 9] {
-            let mut pipe = Pipeline::new();
-            pipe = match scaler {
-                "standard" => pipe.step("scale", StandardScaler::new()),
-                "minmax" => pipe.step("scale", MinMaxScaler::new()),
-                _ => pipe,
-            };
-            out.push((
-                format!("{scaler} | knn(k={k})"),
-                pipe.estimator("knn", Knn::k(k)),
-            ));
-        }
-        #[cfg(not(feature = "onnx"))]
-        {
-            let mut pipe = Pipeline::new();
-            pipe = match scaler {
-                "standard" => pipe.step("scale", StandardScaler::new()),
-                "minmax" => pipe.step("scale", MinMaxScaler::new()),
-                _ => pipe,
-            };
-            out.push((
-                format!("{scaler} | naive_bayes"),
-                pipe.estimator("nb", NaiveBayes::new()),
-            ));
+        let base = preprocessing_candidate(scaler);
+        push_classifier_models(&mut out, &base, scaler, dataset);
+    }
+    out
+}
 
-            let mut pipe = Pipeline::new();
-            pipe = match scaler {
-                "standard" => pipe.step("scale", StandardScaler::new()),
-                "minmax" => pipe.step("scale", MinMaxScaler::new()),
-                _ => pipe,
-            };
-            out.push((
-                format!("{scaler} | svc(linear)"),
-                pipe.estimator("svc", Svc::linear()),
-            ));
-        }
-        if class_count(dataset.target()) == 2 {
-            for &l2 in &[0.0, 0.01, 0.1] {
-                let mut pipe = Pipeline::new();
-                pipe = match scaler {
-                    "standard" => pipe.step("scale", StandardScaler::new()),
-                    "minmax" => pipe.step("scale", MinMaxScaler::new()),
-                    _ => pipe,
-                };
-                out.push((
-                    format!("{scaler} | logistic(l2={l2})"),
-                    pipe.estimator("logistic", LogisticRegression::new().l2(l2)),
-                ));
+/// Add every classifier family for one preprocessing strategy. Keeping this
+/// matrix in one place prevents EDA/scaler and ONNX feature paths from drifting.
+fn push_classifier_models(
+    out: &mut Vec<(String, Pipeline)>,
+    base: &Pipeline,
+    prefix: &str,
+    dataset: &Dataset,
+) {
+    let depths = [Some(2u16), Some(4), Some(8), None];
+    let trees = [50u16, 100];
+    for &depth in &depths {
+        for &n in &trees {
+            let mut rf = RandomForest::new().n_trees(n);
+            if let Some(d) = depth {
+                rf = rf.max_depth(d);
             }
+            let depth_s = depth
+                .map(|d| d.to_string())
+                .unwrap_or_else(|| "none".into());
+            out.push((
+                format!("{prefix} | rf(trees={n}, depth={depth_s})"),
+                base.clone().estimator("rf", rf),
+            ));
         }
     }
+    #[cfg(not(feature = "onnx"))]
+    {
+        for &k in &[3usize, 5, 9] {
+            out.push((
+                format!("{prefix} | knn(k={k})"),
+                base.clone().estimator("knn", Knn::k(k)),
+            ));
+        }
+        out.push((
+            format!("{prefix} | naive_bayes"),
+            base.clone().estimator("nb", NaiveBayes::new()),
+        ));
+        out.push((
+            format!("{prefix} | svc(linear)"),
+            base.clone().estimator("svc", Svc::linear()),
+        ));
+    }
+    if class_count(dataset.target()) == 2 {
+        for &l2 in &[0.0, 0.01, 0.1] {
+            out.push((
+                format!("{prefix} | logistic(l2={l2})"),
+                base.clone()
+                    .estimator("logistic", LogisticRegression::new().l2(l2)),
+            ));
+        }
+    }
+}
 
-    out
+fn preprocessing_candidate(scaler: &str) -> Pipeline {
+    use crate::transform::{MinMaxScaler, StandardScaler};
+    match scaler {
+        "standard" => Pipeline::new().step("scale", StandardScaler::new()),
+        "minmax" => Pipeline::new().step("scale", MinMaxScaler::new()),
+        _ => Pipeline::new(),
+    }
 }
 
 /// Preprocessing × LinearRegression candidates.
 #[cfg_attr(not(feature = "eda"), allow(unused_variables))]
 fn regressor_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
-    use crate::transform::{MinMaxScaler, StandardScaler};
     let mut out = Vec::new();
 
     #[cfg(feature = "eda")]
@@ -656,13 +668,7 @@ fn regressor_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
     }
 
     for scaler in ["none", "standard", "minmax"] {
-        let mut pipe = Pipeline::new();
-        pipe = match scaler {
-            "standard" => pipe.step("scale", StandardScaler::new()),
-            "minmax" => pipe.step("scale", MinMaxScaler::new()),
-            _ => pipe,
-        };
-        pipe = pipe.estimator("lr", LinearRegression::new());
+        let pipe = preprocessing_candidate(scaler).estimator("lr", LinearRegression::new());
         out.push((format!("{scaler} | linear"), pipe));
     }
     out
@@ -752,6 +758,7 @@ mod tests {
             label: "ensemble:voting-soft(top-2)".into(),
             score: 1.0,
             board: vec![("ensemble:voting-soft(top-2)".into(), 1.0)],
+            candidate_failures: Vec::new(),
             ensemble_failures: Vec::new(),
         };
         let path = std::env::temp_dir().join(format!(
@@ -807,6 +814,44 @@ mod tests {
         let par = run(true);
         assert_eq!(seq.best_label(), par.best_label());
         assert!((seq.best_score() - par.best_score()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn invalid_budgets_are_rejected() {
+        let ds = two_class();
+        assert!(AutoML::classifier()
+            .budget(Budget::trials(0))
+            .fit(&ds)
+            .is_err());
+        assert!(AutoML::classifier()
+            .budget(Budget::minutes(f64::NAN))
+            .fit(&ds)
+            .is_err());
+        assert!(AutoML::classifier()
+            .budget(Budget::minutes(1.0))
+            .parallel()
+            .fit(&ds)
+            .is_err());
+    }
+
+    #[cfg(not(feature = "onnx"))]
+    #[test]
+    fn candidate_failures_do_not_abort_search() {
+        let original = two_class();
+        let labels = original
+            .target()
+            .iter()
+            .map(|label| if *label == 0.0 { -1.0 } else { 1.0 })
+            .collect();
+        let dataset = Dataset::new(original.features().clone(), labels).unwrap();
+        let result = AutoML::classifier()
+            .budget(Budget::trials(100))
+            .cv(StratifiedKFold::new(3))
+            .no_ensemble()
+            .fit(&dataset)
+            .unwrap();
+        assert!(!result.candidate_failures().is_empty());
+        assert!(!result.leaderboard_entries().is_empty());
     }
 
     #[test]

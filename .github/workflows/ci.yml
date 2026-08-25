@@ -271,7 +271,7 @@ jobs:
       - run: cargo publish --dry-run --locked
 
   python:
-    name: python wheel (build & 3.9 test)
+    name: python wheel (build & test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -280,7 +280,9 @@ jobs:
           components: llvm-tools-preview
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: "3.9"
+          # pytest 9 contains the tmpdir security fix and requires Python 3.10+.
+          # The separate ABI matrix still smoke-tests the wheel on Python 3.9.
+          python-version: "3.10"
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
       - uses: taiki-e/install-action@d630c3ba8c9bb0648bcefda869fb0d9b98c611d9 # cargo-llvm-cov
       # The `python` feature can't be linked by `cargo test` (pyo3's
@@ -327,8 +329,8 @@ jobs:
         with:
           name: python-abi3-wheel
           path: wheel
-      - run: python -m pip install --requirement requirements/test-python.txt wheel/*.whl
-      - run: python -m pytest -q tests/python
+      - run: python -m pip install --no-deps wheel/*.whl
+      - run: python tests/python/compat_smoke.py
 
   ci-success:
     name: CI success

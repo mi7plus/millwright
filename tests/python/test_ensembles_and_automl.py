@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import millwright as mw
+import pytest
 
 
 def classification_data():
@@ -20,6 +21,10 @@ def classifier_pipeline(n_trees: int) -> mw.Pipeline:
     )
 
 
+def probability_pipeline(l2: float) -> mw.Pipeline:
+    return mw.Pipeline().estimator("logistic", mw.LogisticRegression(l2=l2))
+
+
 def test_voting_and_automl_are_first_class_python_apis(tmp_path: Path):
     frame, labels = classification_data()
     voting = mw.Voting("hard", "classification")
@@ -28,6 +33,12 @@ def test_voting_and_automl_are_first_class_python_apis(tmp_path: Path):
     voting.fit(frame, labels)
     assert voting.predict(frame) == labels
     voting.export_onnx(str(tmp_path / "voting.onnx"))
+
+    soft_voting = mw.Voting("soft", "classification")
+    soft_voting.add("lr1", probability_pipeline(0.0))
+    soft_voting.add("lr2", probability_pipeline(0.01))
+    soft_voting.fit(frame, labels)
+    assert soft_voting.predict_proba(frame).shape == (len(labels), 2)
 
     bagging = mw.Bagging(
         classifier_pipeline(8), n_estimators=3, seed=4, task="classification"
@@ -66,11 +77,19 @@ def test_voting_and_automl_are_first_class_python_apis(tmp_path: Path):
     assert 0.0 <= result.best_score <= 1.0
     assert len(result.predict(frame)) == len(labels)
     assert "rank" in result.leaderboard()
+    assert result.leaderboard_entries()
+    assert isinstance(result.candidate_failures(), list)
     assert isinstance(result.ensemble_failures(), list)
+    assert len(result.best_model().predict(frame)) == len(labels)
+    if not result.is_ensemble:
+        assert result.best_pipeline() is not None
 
     artifact = tmp_path / "automl.onnx"
     result.export_onnx(str(artifact))
     assert artifact.stat().st_size > 0
+
+    with pytest.raises(ValueError, match="minute budget"):
+        mw.AutoML.classifier().budget_minutes(0.0).fit(frame, labels)
 
 
 def test_bagging_handles_integer_regression_explicitly():
@@ -90,3 +109,5 @@ def test_bagging_handles_integer_regression_explicitly():
     )
     assert not result.is_ensemble
     assert result.best_score > 0.9
+    assert result.best_pipeline() is not None
+    assert len(result.best_model().predict(frame)) == len(labels)

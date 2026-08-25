@@ -36,8 +36,9 @@ use crate::backends::smartcore::{Knn, LinearRegression, NaiveBayes, RandomForest
 use crate::error::Error;
 use crate::evaluate::Report;
 use crate::frame::{Dataset, Frame};
+use crate::logistic::LogisticRegression;
 use crate::pipeline::Pipeline as CorePipeline;
-use crate::traits::{Estimator, Model, Predictor};
+use crate::traits::{Estimator, Model, Predictor, ProbaPredictor};
 use crate::transform::{MinMaxScaler, OneHotEncoder, SimpleImputer, StandardScaler};
 
 use crate::automl::{AutoML, AutoMLResult, Budget, EnsembleKind};
@@ -192,6 +193,27 @@ impl PyRandomForest {
     }
 }
 
+/// Binary logistic regression with probability prediction.
+#[pyclass(name = "LogisticRegression", from_py_object)]
+#[derive(Clone)]
+struct PyLogisticRegression {
+    learning_rate: f64,
+    epochs: usize,
+    l2: f64,
+}
+#[pymethods]
+impl PyLogisticRegression {
+    #[new]
+    #[pyo3(signature = (learning_rate=0.5, epochs=500, l2=0.0))]
+    fn new(learning_rate: f64, epochs: usize, l2: f64) -> Self {
+        Self {
+            learning_rate,
+            epochs,
+            l2,
+        }
+    }
+}
+
 /// An ordinary-least-squares regressor.
 #[pyclass(name = "LinearRegression", from_py_object)]
 #[derive(Clone)]
@@ -316,6 +338,15 @@ fn set_estimator(
         }
         return Ok(pipe.estimator(name, model));
     }
+    if let Ok(model) = obj.extract::<PyLogisticRegression>() {
+        return Ok(pipe.estimator(
+            name,
+            LogisticRegression::new()
+                .learning_rate(model.learning_rate)
+                .epochs(model.epochs)
+                .l2(model.l2),
+        ));
+    }
     if obj.extract::<PyLinearRegression>().is_ok() {
         return Ok(pipe.estimator(name, LinearRegression::new()));
     }
@@ -339,7 +370,7 @@ fn set_estimator(
     }
     Err(PyValueError::new_err(
         "estimator expects an estimator object \
-         (RandomForest, LinearRegression, Knn, Svc, NaiveBayes, OnnxModel)",
+         (RandomForest, LogisticRegression, LinearRegression, Knn, Svc, NaiveBayes, OnnxModel)",
     ))
 }
 
@@ -751,6 +782,14 @@ impl PyVoting {
     fn predict(&self, data: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
         predict_ensemble(&self.inner, data)
     }
+    fn predict_proba(&self, data: &Bound<'_, PyAny>) -> PyResult<PyFrame> {
+        Ok(PyFrame {
+            inner: self
+                .inner
+                .predict_proba(&frame_arg(data)?)
+                .map_err(to_py_err)?,
+        })
+    }
     fn export_onnx(&self, path: String) -> PyResult<()> {
         export_ensemble(&self.inner, path)
     }
@@ -882,6 +921,7 @@ fn parse_ensemble_kind(kind: &str) -> PyResult<EnsembleKind> {
 struct PyAutoML {
     classifier: bool,
     trials: usize,
+    minutes: Option<f64>,
     metric: Metric,
     cv: CvSpec,
     seed: u64,
@@ -899,6 +939,7 @@ impl PyAutoML {
         Self {
             classifier: true,
             trials: 40,
+            minutes: None,
             metric: Metric::Accuracy,
             cv: CvSpec::Stratified(5),
             seed: 0,
@@ -920,6 +961,7 @@ impl PyAutoML {
         Self {
             classifier: false,
             trials: 40,
+            minutes: None,
             metric: Metric::R2,
             cv: CvSpec::KFold(5),
             seed: 0,
@@ -937,6 +979,12 @@ impl PyAutoML {
 
     fn budget_trials<'a>(mut slf: PyRefMut<'a, Self>, trials: usize) -> PyRefMut<'a, Self> {
         slf.trials = trials;
+        slf.minutes = None;
+        slf
+    }
+
+    fn budget_minutes<'a>(mut slf: PyRefMut<'a, Self>, minutes: f64) -> PyRefMut<'a, Self> {
+        slf.minutes = Some(minutes);
         slf
     }
 
@@ -993,8 +1041,12 @@ impl PyAutoML {
         } else {
             AutoML::regressor()
         };
+        let budget = self
+            .minutes
+            .map(Budget::minutes)
+            .unwrap_or_else(|| Budget::trials(self.trials));
         let search = search
-            .budget(Budget::trials(self.trials))
+            .budget(budget)
             .metric(self.metric)
             .seed(self.seed)
             .ensemble_size(self.ensemble_size)
@@ -1051,8 +1103,29 @@ impl PyAutoMLResult {
         self.inner.leaderboard()
     }
 
+    fn leaderboard_entries(&self) -> Vec<(String, f64)> {
+        self.inner.leaderboard_entries().to_vec()
+    }
+
+    fn candidate_failures(&self) -> Vec<(String, String)> {
+        self.inner.candidate_failures().to_vec()
+    }
+
     fn ensemble_failures(&self) -> Vec<(String, String)> {
         self.inner.ensemble_failures().to_vec()
+    }
+
+    fn best_pipeline(&self) -> Option<PyPipeline> {
+        self.inner.best_pipeline().map(|pipeline| PyPipeline {
+            inner: pipeline.clone(),
+            fitted: true,
+        })
+    }
+
+    fn best_model(&self) -> PyFittedModel {
+        PyFittedModel {
+            inner: self.inner.clone_best_model(),
+        }
     }
 
     fn predict(&self, data: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
@@ -1061,6 +1134,23 @@ impl PyAutoMLResult {
 
     fn export_onnx(&self, path: String) -> PyResult<()> {
         self.inner.export_onnx(path).map_err(to_py_err)
+    }
+}
+
+/// A type-erased fitted AutoML winner, whether pipeline or ensemble.
+#[pyclass(name = "FittedModel", unsendable)]
+struct PyFittedModel {
+    inner: Box<dyn Model>,
+}
+
+#[pymethods]
+impl PyFittedModel {
+    fn predict(&self, data: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+        predict_ensemble(self.inner.as_ref(), data)
+    }
+
+    fn export_onnx(&self, path: String) -> PyResult<()> {
+        export_ensemble(self.inner.as_ref(), path)
     }
 }
 
@@ -1213,6 +1303,7 @@ fn millwright(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySimpleImputer>()?;
     m.add_class::<PyOneHotEncoder>()?;
     m.add_class::<PyRandomForest>()?;
+    m.add_class::<PyLogisticRegression>()?;
     m.add_class::<PyLinearRegression>()?;
     m.add_class::<PyKnn>()?;
     m.add_class::<PySvc>()?;
@@ -1223,6 +1314,7 @@ fn millwright(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStacking>()?;
     m.add_class::<PyAutoML>()?;
     m.add_class::<PyAutoMLResult>()?;
+    m.add_class::<PyFittedModel>()?;
     #[cfg(feature = "onnx")]
     m.add_class::<PyOnnxModel>()?;
     #[cfg(feature = "explain")]

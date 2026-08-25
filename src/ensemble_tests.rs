@@ -1,6 +1,25 @@
 use super::*;
 use crate::backends::smartcore::RandomForest;
 
+#[derive(Clone)]
+struct WrongLength;
+
+impl Estimator for WrongLength {
+    fn name(&self) -> &'static str {
+        "WrongLength"
+    }
+
+    fn fit(&mut self, _dataset: &Dataset) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl Predictor for WrongLength {
+    fn predict(&self, _frame: &Frame) -> Result<Vec<f64>> {
+        Ok(vec![0.0])
+    }
+}
+
 fn two_class() -> Dataset {
     let mut rows = Vec::new();
     let mut y = Vec::new();
@@ -57,6 +76,23 @@ fn bagging_predicts_clusters() {
 }
 
 #[test]
+fn explicit_classification_rejects_fractional_labels() {
+    let features = Frame::from_rows(vec![vec![0.0], vec![1.0]], vec!["x".into()]).unwrap();
+    let dataset = Dataset::new(features, vec![0.25, 0.75]).unwrap();
+    let mut voting = Voting::hard()
+        .add("rf", RandomForest::new())
+        .task(EnsembleTask::Classification);
+    assert!(voting.fit(&dataset).is_err());
+}
+
+#[test]
+fn malformed_member_prediction_length_is_an_error() {
+    let mut voting = Voting::hard().add("bad", WrongLength);
+    voting.fit(&two_class()).unwrap();
+    assert!(matches!(voting.predict(&probe()), Err(Error::Shape(_))));
+}
+
+#[test]
 fn explicit_regression_preserves_integer_valued_targets() {
     use crate::backends::smartcore::LinearRegression;
     use crate::ensemble::EnsembleTask;
@@ -106,6 +142,14 @@ fn boosting_is_seed_reproducible() {
         b.predict(&probe()).unwrap()
     };
     assert_eq!(run(), run());
+}
+
+#[test]
+fn boosting_rejects_invalid_learning_rates() {
+    for rate in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        let mut model = Boosting::of(RandomForest::new()).learning_rate(rate);
+        assert!(model.fit(&two_class()).is_err(), "accepted {rate}");
+    }
 }
 
 #[cfg(feature = "model-selection")]

@@ -176,6 +176,9 @@ let result = AutoML::classifier()
     .cv(StratifiedKFold::new(5))
     .fit(&train)?;
 println!("{}", result.leaderboard());
+for (label, error) in result.candidate_failures() {
+    eprintln!("skipped {label}: {error}");
+}
 result.export_onnx("model.onnx")?;   // deployable
 ```
 
