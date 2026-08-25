@@ -545,8 +545,8 @@ profile.to_html(<span class="s">"eda_report.html"</span>)?;         <span class=
       <div class="edagrid">
         <div class="acard"><div class="lab">Preprocessing</div><p>Imputation, encoding, scaling strategies — <em>seeded</em> by the <code class="inl">Profile</code>'s alerts, not brute-forced blind.</p></div>
         <div class="acard"><div class="lab">Model zoo</div><p>Linear · logistic · KNN · SVM · naive Bayes · forests — across backends, all behind the one <code class="inl">Estimator</code> contract.</p></div>
-        <div class="acard"><div class="lab">Hyperparameters</div><p>TPE / Bayesian search per candidate (<span class="mono">hyperopt-rs</span>), every fit scored by the CV engine.</p></div>
-        <div class="acard"><div class="lab">Auto-ensemble</div><p>Stack the top-<em>k</em> candidates into a final blend — the auto-sklearn move, using the ensemble core.</p></div>
+        <div class="acard"><div class="lab">Hyperparameters</div><p>Budgeted candidate configurations, with every fit scored by the same cross-validation engine used by manual searches.</p></div>
+        <div class="acard"><div class="lab">Auto-ensemble</div><p>Voting, bagging, boosting, and stacking candidates compete with individual pipelines; ensemble breadth and families are configurable.</p></div>
       </div>
 
       <div class="grid2">
@@ -559,12 +559,12 @@ profile.to_html(<span class="s">"eda_report.html"</span>)?;         <span class=
     .parallel()                           <span class="c">// search fans out over rayon</span>
     .fit(&amp;train)?;
 
-<span class="f">println!</span>(<span class="s">"{}"</span>, result.leaderboard());     <span class="c">// ranked pipelines + scores</span>
-<span class="k">let</span> best = result.best_pipeline();         <span class="c">// the winning Pipeline (if not an ensemble)</span>
+<span class="f">println!</span>(<span class="s">"{}"</span>, result.leaderboard());     <span class="c">// ranked pipelines, ensembles + failures</span>
+<span class="f">println!</span>(<span class="s">"winner: {}"</span>, result.best_label());
+<span class="k">if</span> result.is_ensemble() { <span class="f">println!</span>(<span class="s">"ensemble won"</span>); }
 
 <span class="c">// …and it flows straight into the rest of the lifecycle</span>
-best.explain(<span class="f">Explainer</span>::kernel(), &amp;test)?;
-best.export_onnx(<span class="s">"model.onnx"</span>)?;          <span class="c">// deployable — unlike a TPOT object</span></pre>
+result.export_onnx(<span class="s">"model.onnx"</span>)?;        <span class="c">// pipelines and ensembles both deploy</span></pre>
         </div>
         <div>
           <h3>More than a wrapper</h3>

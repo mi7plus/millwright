@@ -43,7 +43,7 @@ pipe.fit(&amp;train)?;
 pipe.export_onnx(<span class="s">"pipeline.onnx"</span>)?;                 <span class="c">// scaler + model, one graph</span>
 <span class="k">let</span> model = <span class="f">InferenceModel</span>::load(<span class="s">"pipeline.onnx"</span>)?;
 <span class="k">let</span> via_onnx = model.predict(&amp;probe)?;              <span class="c">// matches `native`</span></pre>
-      <p class="tiny">Linear/affine/pipeline graphs run inside tract for a full round-trip. A random forest exports to a valid ONNX-ML tree-ensemble artifact for external runtimes (onnxruntime); tract implements NN ops, not the ONNX-ML tree ops.</p>
+      <p class="tiny">Linear and affine graphs run through tract. Millwright's native ONNX-ML interpreter executes its exported tree ensembles too, so its own linear, pipeline, forest, and generated ensemble artifacts all round-trip locally and remain portable to external ONNX runtimes.</p>
       <p class="run">cargo run --example portability --features "smartcore-backend onnx"</p>
     </div>
   </section>

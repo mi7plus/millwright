@@ -47,9 +47,10 @@ contract, so training, evaluation, export, serving, and monitoring compose.
   `KFold` / `StratifiedKFold`, a `Metric` enum (accuracy, F1, MAE, MSE, RMSE, R²),
   and `GridSearch` / `RandomSearch` over a whole pipeline, tuned by path. `grid!`
   macro included.
-- **Ensembles** (`src/ensemble.rs`, core): `Voting` (hard/soft), `Bagging`, and
-  leak-free `Stacking` riding the same CV engine — all `Model`s themselves, so
-  they compose, tune, and nest.
+- **Ensembles** (`src/ensemble.rs`, core): `Voting` (hard/soft), `Bagging`,
+  `Boosting`, and leak-free `Stacking` riding the same CV engine — all `Model`s
+  themselves, so they compose, tune, and nest. Set `EnsembleTask::Regression`
+  explicitly when a regression target happens to contain only integers.
 
 ### Phase 2 · backends & HPO — *two backends, one contract*
 

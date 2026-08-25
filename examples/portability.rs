@@ -38,8 +38,8 @@ fn main() -> Result<()> {
         assert!((a - b).abs() < 1e-3, "mismatch: {a} vs {b}");
     }
 
-    // A random forest exports to a valid ONNX-ML artifact for full runtimes
-    // (onnxruntime); tract implements NN ops, not ONNX-ML tree ops.
+    // A random forest exports to a valid ONNX-ML artifact. Millwright runs the
+    // tree graph through its native interpreter; external runtimes can run it too.
     let mut rf = RandomForest::new().n_trees(30).max_depth(4);
     let churn = Dataset::new(
         Frame::from_rows(

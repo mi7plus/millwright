@@ -224,6 +224,29 @@ pub(crate) enum EnsembleAggregation<'a> {
 }
 
 #[cfg(feature = "ensemble")]
+fn merged_opset_imports<'a>(
+    protos: impl IntoIterator<Item = &'a ModelProto>,
+    minimum_default: i64,
+) -> Vec<onnx_export_rs::proto::OperatorSetIdProto> {
+    use std::collections::BTreeMap;
+
+    let mut versions = BTreeMap::<String, i64>::new();
+    versions.insert(String::new(), minimum_default);
+    for proto in protos {
+        for import in &proto.opset_import {
+            versions
+                .entry(import.domain.clone())
+                .and_modify(|version| *version = (*version).max(import.version))
+                .or_insert(import.version);
+        }
+    }
+    versions
+        .into_iter()
+        .map(|(domain, version)| onnx_export_rs::proto::OperatorSetIdProto { domain, version })
+        .collect()
+}
+
+#[cfg(feature = "ensemble")]
 fn namespace_graph(
     proto: ModelProto,
     prefix: &str,
@@ -286,14 +309,11 @@ pub(crate) fn combine_onnx(
         .and_then(|graph| graph.input.first())
         .cloned()
         .ok_or_else(|| Error::Backend("ensemble member ONNX model has no input".into()))?;
-    let opset = protos
+    let opset_imports = merged_opset_imports(&protos, 13);
+    let opset = opset_imports
         .iter()
-        .flat_map(|proto| proto.opset_import.iter())
-        .filter(|opset| opset.domain.is_empty())
-        .map(|opset| opset.version)
-        .max()
-        .unwrap_or(13)
-        .max(13);
+        .find(|opset| opset.domain.is_empty())
+        .map_or(13, |opset| opset.version);
     let ir = protos
         .iter()
         .map(|proto| proto.ir_version)
@@ -457,7 +477,7 @@ pub(crate) fn combine_onnx(
         final_output.clone(),
         &[Dimension::Symbolic("batch".into()), Dimension::Fixed(1)],
     );
-    Ok(assemble_model(
+    let mut model = assemble_model(
         GraphProto {
             node: nodes,
             name: "millwright_ensemble".into(),
@@ -469,7 +489,9 @@ pub(crate) fn combine_onnx(
         },
         opset,
         ir,
-    ))
+    );
+    model.opset_import = opset_imports;
+    Ok(model)
 }
 
 #[cfg(feature = "ensemble")]
@@ -560,15 +582,11 @@ pub(crate) fn stack_onnx(bases: Vec<ModelProto>, meta: ModelProto) -> Result<Mod
         .cloned()
         .ok_or_else(|| Error::Backend("stacking base ONNX model has no input".into()))?;
     input.name = "mw_input".into();
-    let opset = bases
+    let opset_imports = merged_opset_imports(bases.iter().chain(std::iter::once(&meta)), 13);
+    let opset = opset_imports
         .iter()
-        .chain(std::iter::once(&meta))
-        .flat_map(|proto| proto.opset_import.iter())
-        .filter(|opset| opset.domain.is_empty())
-        .map(|opset| opset.version)
-        .max()
-        .unwrap_or(13)
-        .max(13);
+        .find(|opset| opset.domain.is_empty())
+        .map_or(13, |opset| opset.version);
     let ir = bases
         .iter()
         .chain(std::iter::once(&meta))
@@ -595,7 +613,7 @@ pub(crate) fn stack_onnx(bases: Vec<ModelProto>, meta: ModelProto) -> Result<Mod
         namespace_graph(meta, "mw_meta_", "mw_meta_input")?;
     nodes.append(&mut meta_nodes);
     initializers.append(&mut meta_initializers);
-    Ok(assemble_model(
+    let mut model = assemble_model(
         GraphProto {
             node: nodes,
             name: "millwright_stacking".into(),
@@ -610,7 +628,9 @@ pub(crate) fn stack_onnx(bases: Vec<ModelProto>, meta: ModelProto) -> Result<Mod
         },
         opset,
         ir,
-    ))
+    );
+    model.opset_import = opset_imports;
+    Ok(model)
 }
 
 /// A loaded ONNX model, ready to run.

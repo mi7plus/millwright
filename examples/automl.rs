@@ -48,7 +48,7 @@ fn main() -> Result<()> {
     let path = temp_dir().join("millwright_automl.onnx");
     match result.export_onnx(&path) {
         Ok(()) => println!("exported winner -> {} (deployable ONNX)", path.display()),
-        Err(e) => println!("winner is an ensemble, not single-pipeline: {e}"),
+        Err(e) => println!("winner contains a component without ONNX support: {e}"),
     }
 
     println!("ok — auto-sklearn, but the output actually deploys.");

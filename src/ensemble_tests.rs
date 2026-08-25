@@ -57,6 +57,36 @@ fn bagging_predicts_clusters() {
 }
 
 #[test]
+fn explicit_regression_preserves_integer_valued_targets() {
+    use crate::backends::smartcore::LinearRegression;
+    use crate::ensemble::EnsembleTask;
+
+    let frame = Frame::from_rows(
+        vec![
+            vec![0.0],
+            vec![1.0],
+            vec![2.0],
+            vec![3.0],
+            vec![4.0],
+            vec![5.0],
+        ],
+        vec!["x".into()],
+    )
+    .unwrap();
+    let dataset = Dataset::new(frame.clone(), vec![0.0, 2.0, 4.0, 6.0, 8.0, 10.0]).unwrap();
+    let mut model = Bagging::of(LinearRegression::new())
+        .n_estimators(5)
+        .seed(7)
+        .task(EnsembleTask::Regression);
+    model.fit(&dataset).unwrap();
+    let prediction = model.predict(&frame).unwrap();
+    assert!(
+        prediction[3] > 4.0,
+        "integer regression was treated as voting: {prediction:?}"
+    );
+}
+
+#[test]
 fn boosting_predicts_clusters() {
     // Boost depth-1 stumps; the alpha-weighted vote should separate.
     let mut b = Boosting::of(RandomForest::new().n_trees(1).max_depth(1))
@@ -127,11 +157,33 @@ fn every_ensemble_family_round_trips_through_onnx() {
         model.fit(&dataset).unwrap();
         let expected = model.predict(&probe).unwrap();
         let proto = model.to_onnx_proto().unwrap();
+        if index == 2 {
+            assert!(
+                proto
+                    .opset_import
+                    .iter()
+                    .any(|import| import.domain == "ai.onnx.ml"),
+                "tree ensemble composition must preserve the ONNX-ML opset import"
+            );
+        }
         let path = std::env::temp_dir().join(format!(
             "millwright-ensemble-{}-{index}.onnx",
             std::process::id()
         ));
         onnx_export_rs::graph_builder::save_to_file(&proto, &path).unwrap();
+        if index == 2 {
+            if let Ok(python) = std::env::var("MILLWRIGHT_ONNX_CHECKER") {
+                let script = "import onnx,sys; onnx.checker.check_model(onnx.load(sys.argv[1]))";
+                let status = std::process::Command::new(python)
+                    .args(["-c", script, path.to_str().unwrap()])
+                    .status()
+                    .unwrap();
+                assert!(
+                    status.success(),
+                    "official ONNX checker rejected tree ensemble"
+                );
+            }
+        }
         let loaded = InferenceModel::load(&path).unwrap();
         assert_eq!(loaded.predict(&probe).unwrap(), expected);
         std::fs::remove_file(path).ok();
