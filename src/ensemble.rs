@@ -680,6 +680,7 @@ impl Stacking {
         self
     }
 
+    #[cfg(feature = "automl")]
     pub(crate) fn boxed_cv(mut self, cv: Box<dyn crate::selection::CrossValidator>) -> Self {
         self.cv = cv;
         self
