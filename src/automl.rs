@@ -984,7 +984,6 @@ mod tests {
         assert_eq!(failures.len(), 1);
         assert_eq!(failures[0].0, "bad");
     }
-
     #[cfg(not(feature = "onnx"))]
     #[test]
     fn candidate_failures_do_not_abort_search() {

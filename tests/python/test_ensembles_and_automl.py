@@ -46,7 +46,6 @@ def test_pipeline_probabilities_and_logistic_validation():
         bad = mw.Pipeline().estimator("logistic", mw.LogisticRegression(l2=-0.1))
         bad.fit(frame, labels)
 
-
 def test_voting_and_automl_are_first_class_python_apis(tmp_path: Path):
     frame, labels = classification_data()
     voting = mw.Voting("hard", "classification")
