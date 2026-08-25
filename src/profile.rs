@@ -192,6 +192,109 @@ impl fmt::Display for Alert {
 // Construction
 // -------------------------------------------------------------------------
 
+type KindCounts = (usize, usize, usize, usize);
+type NullMask = (String, Vec<Option<f64>>);
+
+struct ColumnAnalysis {
+    columns: Vec<ColumnProfile>,
+    per_column_missing: Vec<(String, usize)>,
+    null_masks: Vec<NullMask>,
+    kind_counts: KindCounts,
+}
+
+fn analyze_columns(table: &Table, schema: &[(String, ColKind)]) -> Result<ColumnAnalysis> {
+    let mut analysis = ColumnAnalysis {
+        columns: Vec::with_capacity(schema.len()),
+        per_column_missing: Vec::with_capacity(schema.len()),
+        null_masks: Vec::new(),
+        kind_counts: (0, 0, 0, 0),
+    };
+    for (name, kind) in schema {
+        increment_kind_count(&mut analysis.kind_counts, *kind);
+        let missing = table.null_count(name)?;
+        analysis.per_column_missing.push((name.clone(), missing));
+        if missing > 0 {
+            analysis
+                .null_masks
+                .push((name.clone(), null_mask(table, name, *kind)?));
+        }
+        analysis.columns.push(column_profile(table, name, *kind)?);
+    }
+    Ok(analysis)
+}
+
+fn increment_kind_count(counts: &mut KindCounts, kind: ColKind) {
+    match kind {
+        ColKind::Numeric => counts.0 += 1,
+        ColKind::Categorical => counts.1 += 1,
+        ColKind::Datetime => counts.2 += 1,
+        ColKind::Boolean => counts.3 += 1,
+    }
+}
+
+fn null_mask(table: &Table, name: &str, kind: ColKind) -> Result<Vec<Option<f64>>> {
+    let missing = if kind == ColKind::Numeric {
+        table
+            .column_f64(name)?
+            .iter()
+            .map(Option::is_none)
+            .collect::<Vec<_>>()
+    } else {
+        table
+            .column_strings(name)?
+            .iter()
+            .map(Option::is_none)
+            .collect::<Vec<_>>()
+    };
+    Ok(missing
+        .into_iter()
+        .map(|is_missing| Some(if is_missing { 1.0 } else { 0.0 }))
+        .collect())
+}
+
+fn column_profile(table: &Table, name: &str, kind: ColKind) -> Result<ColumnProfile> {
+    if kind == ColKind::Numeric {
+        Ok(ColumnProfile::Numeric(numeric_profile(name, table)?))
+    } else {
+        Ok(ColumnProfile::Categorical(categorical_profile(
+            name, table,
+        )?))
+    }
+}
+
+fn co_missing_pairs(null_masks: &[NullMask]) -> Vec<(String, String, f64)> {
+    let mut pairs = Vec::new();
+    for (index, (left_name, left_mask)) in null_masks.iter().enumerate() {
+        for (right_name, right_mask) in &null_masks[index + 1..] {
+            let phi = pearson(left_mask, right_mask);
+            if phi.is_finite() && phi.abs() > 0.5 {
+                pairs.push((left_name.clone(), right_name.clone(), phi));
+            }
+        }
+    }
+    pairs
+}
+
+fn build_overview(
+    table: &Table,
+    schema: &[(String, ColKind)],
+    nrows: usize,
+    missing_cells: usize,
+    counts: KindCounts,
+) -> Overview {
+    Overview {
+        nrows,
+        ncols: schema.len(),
+        n_numeric: counts.0,
+        n_categorical: counts.1,
+        n_datetime: counts.2,
+        n_boolean: counts.3,
+        missing_cells,
+        total_cells: nrows * schema.len(),
+        duplicate_rows: table.duplicate_rows(),
+    }
+}
+
 impl Profile {
     /// Profile a table with no designated target.
     pub fn of(table: &Table) -> Result<Profile> {
@@ -211,88 +314,24 @@ impl Profile {
     fn build(table: &Table, target: Option<&str>) -> Result<Profile> {
         let schema = table.schema();
         let nrows = table.nrows();
-
-        let mut columns = Vec::new();
-        let mut per_column_missing = Vec::new();
-        let mut null_masks: Vec<(String, Vec<Option<f64>>)> = Vec::new();
-        let (mut n_numeric, mut n_categorical, mut n_datetime, mut n_boolean) = (0, 0, 0, 0);
-
-        for (name, kind) in &schema {
-            match kind {
-                ColKind::Numeric => n_numeric += 1,
-                ColKind::Categorical => n_categorical += 1,
-                ColKind::Datetime => n_datetime += 1,
-                ColKind::Boolean => n_boolean += 1,
-            }
-            let missing = table.null_count(name)?;
-            per_column_missing.push((name.clone(), missing));
-
-            // A null-indicator mask (1.0 = missing) for columns that have nulls,
-            // so we can later find columns that go missing together.
-            if missing > 0 {
-                let mask: Vec<Option<f64>> = if *kind == ColKind::Numeric {
-                    table
-                        .column_f64(name)?
-                        .iter()
-                        .map(|v| Some(if v.is_none() { 1.0 } else { 0.0 }))
-                        .collect()
-                } else {
-                    table
-                        .column_strings(name)?
-                        .iter()
-                        .map(|v| Some(if v.is_none() { 1.0 } else { 0.0 }))
-                        .collect()
-                };
-                null_masks.push((name.clone(), mask));
-            }
-
-            let profile = if *kind == ColKind::Numeric {
-                ColumnProfile::Numeric(numeric_profile(name, table)?)
-            } else {
-                ColumnProfile::Categorical(categorical_profile(name, table)?)
-            };
-            columns.push(profile);
-        }
-
-        // Column pairs whose null patterns correlate (phi = Pearson on the masks).
-        let mut co_missing = Vec::new();
-        for i in 0..null_masks.len() {
-            for j in (i + 1)..null_masks.len() {
-                let phi = pearson(&null_masks[i].1, &null_masks[j].1);
-                if phi.is_finite() && phi.abs() > 0.5 {
-                    co_missing.push((null_masks[i].0.clone(), null_masks[j].0.clone(), phi));
-                }
-            }
-        }
-
-        let missing_total: usize = per_column_missing.iter().map(|(_, m)| m).sum();
-        let overview = Overview {
-            nrows,
-            ncols: schema.len(),
-            n_numeric,
-            n_categorical,
-            n_datetime,
-            n_boolean,
-            missing_cells: missing_total,
-            total_cells: nrows * schema.len(),
-            duplicate_rows: table.duplicate_rows(),
-        };
+        let analysis = analyze_columns(table, &schema)?;
+        let missing_total = analysis.per_column_missing.iter().map(|(_, m)| m).sum();
+        let overview = build_overview(table, &schema, nrows, missing_total, analysis.kind_counts);
         let missingness = Missingness {
-            per_column: per_column_missing,
+            per_column: analysis.per_column_missing,
             total: missing_total,
-            co_missing,
+            co_missing: co_missing_pairs(&analysis.null_masks),
         };
 
         let correlations = correlations(table, &schema)?;
-        let target_profile = match target {
-            Some(t) => Some(target_profile(table, &schema, t)?),
-            None => None,
-        };
-        let alerts = alerts(&overview, &columns, &correlations, &target_profile);
+        let target_profile = target
+            .map(|name| target_profile(table, &schema, name))
+            .transpose()?;
+        let alerts = alerts(&overview, &analysis.columns, &correlations, &target_profile);
 
         Ok(Profile {
             overview,
-            columns,
+            columns: analysis.columns,
             missingness,
             correlations,
             target: target_profile,

@@ -296,8 +296,7 @@ pub(crate) fn combine_onnx(
     protos: Vec<ModelProto>,
     aggregation: EnsembleAggregation<'_>,
 ) -> Result<ModelProto> {
-    use ndarray::Array1;
-    use onnx_export_rs::graph_builder::{assemble_model, make_node};
+    use onnx_export_rs::graph_builder::assemble_model;
     use onnx_export_rs::proto::GraphProto;
 
     if protos.is_empty() {
@@ -330,147 +329,7 @@ pub(crate) fn combine_onnx(
         outputs.push(output);
     }
 
-    let scalar =
-        |name: &str, value: f64| make_tensor(name, &Array1::from(vec![value as f32]).into_dyn());
-    fn add_chain(
-        nodes: &mut Vec<onnx_export_rs::proto::NodeProto>,
-        terms: Vec<String>,
-        stem: &str,
-    ) -> Result<String> {
-        let mut iter = terms.into_iter();
-        let mut current = iter
-            .next()
-            .ok_or_else(|| Error::Backend("ensemble aggregation has no terms".into()))?;
-        for (index, term) in iter.enumerate() {
-            let output = format!("mw_{stem}_sum{index}");
-            nodes.push(make_node(
-                "Add",
-                [current.as_str(), term.as_str()],
-                [output.as_str()],
-                vec![],
-            ));
-            current = output;
-        }
-        Ok(current)
-    }
-
-    let final_output = match aggregation {
-        EnsembleAggregation::Mean => {
-            let count = outputs.len();
-            let sum = add_chain(&mut nodes, outputs, "mean")?;
-            if count == 1 {
-                sum
-            } else {
-                initializers.push(scalar("mw_divisor", count as f64));
-                nodes.push(make_node(
-                    "Div",
-                    [sum.as_str(), "mw_divisor"],
-                    ["mw_output"],
-                    vec![],
-                ));
-                "mw_output".into()
-            }
-        }
-        EnsembleAggregation::HardVote { classes, weights } => {
-            if outputs.len() != weights.len() || classes.is_empty() {
-                return Err(Error::Backend(
-                    "invalid hard-voting ONNX aggregation".into(),
-                ));
-            }
-            let mut class_scores = Vec::new();
-            for (class_index, class) in classes.iter().enumerate() {
-                let class_name = format!("mw_class_{class_index}");
-                initializers.push(scalar(&class_name, *class as f64));
-                let mut terms = Vec::new();
-                for (member_index, output) in outputs.iter().enumerate() {
-                    let equal = format!("mw_eq_{class_index}_{member_index}");
-                    let cast = format!("mw_cast_{class_index}_{member_index}");
-                    let weighted = format!("mw_weighted_{class_index}_{member_index}");
-                    let weight = format!("mw_weight_{member_index}");
-                    if class_index == 0 {
-                        initializers.push(scalar(&weight, weights[member_index]));
-                    }
-                    nodes.push(make_node(
-                        "Equal",
-                        [output.as_str(), class_name.as_str()],
-                        [equal.as_str()],
-                        vec![],
-                    ));
-                    nodes.push(make_node(
-                        "Cast",
-                        [equal.as_str()],
-                        [cast.as_str()],
-                        vec![int_attribute("to", FLOAT as i64)],
-                    ));
-                    nodes.push(make_node(
-                        "Mul",
-                        [cast.as_str(), weight.as_str()],
-                        [weighted.as_str()],
-                        vec![],
-                    ));
-                    terms.push(weighted);
-                }
-                class_scores.push(add_chain(
-                    &mut nodes,
-                    terms,
-                    &format!("class{class_index}"),
-                )?);
-            }
-            nodes.push(make_node(
-                "Concat",
-                class_scores,
-                ["mw_scores"],
-                vec![int_attribute("axis", 1)],
-            ));
-            nodes.push(make_node(
-                "ArgMax",
-                ["mw_scores"],
-                ["mw_index"],
-                vec![int_attribute("axis", 1), int_attribute("keepdims", 1)],
-            ));
-            nodes.push(make_node(
-                "Cast",
-                ["mw_index"],
-                ["mw_index_f"],
-                vec![int_attribute("to", FLOAT as i64)],
-            ));
-            map_class_index(&mut nodes, &mut initializers, classes, "mw_index_f")
-        }
-        EnsembleAggregation::SoftVote { classes, weights } => {
-            if outputs.len() != weights.len() || classes.is_empty() {
-                return Err(Error::Backend(
-                    "invalid soft-voting ONNX aggregation".into(),
-                ));
-            }
-            let mut terms = Vec::new();
-            for (index, output) in outputs.iter().enumerate() {
-                let weight = format!("mw_weight_{index}");
-                let weighted = format!("mw_weighted_{index}");
-                initializers.push(scalar(&weight, weights[index]));
-                nodes.push(make_node(
-                    "Mul",
-                    [output.as_str(), weight.as_str()],
-                    [weighted.as_str()],
-                    vec![],
-                ));
-                terms.push(weighted);
-            }
-            let scores = add_chain(&mut nodes, terms, "soft")?;
-            nodes.push(make_node(
-                "ArgMax",
-                [scores.as_str()],
-                ["mw_index"],
-                vec![int_attribute("axis", 1), int_attribute("keepdims", 1)],
-            ));
-            nodes.push(make_node(
-                "Cast",
-                ["mw_index"],
-                ["mw_index_f"],
-                vec![int_attribute("to", FLOAT as i64)],
-            ));
-            map_class_index(&mut nodes, &mut initializers, classes, "mw_index_f")
-        }
-    };
+    let final_output = aggregate_ensemble(&mut nodes, &mut initializers, outputs, aggregation)?;
     let mut input = input_info;
     input.name = "mw_input".into();
     let output_info = make_value_info(
@@ -631,6 +490,179 @@ pub(crate) fn stack_onnx(bases: Vec<ModelProto>, meta: ModelProto) -> Result<Mod
     );
     model.opset_import = opset_imports;
     Ok(model)
+}
+
+#[cfg(feature = "ensemble")]
+fn scalar_initializer(name: &str, value: f64) -> onnx_export_rs::proto::TensorProto {
+    use ndarray::Array1;
+    make_tensor(name, &Array1::from(vec![value as f32]).into_dyn())
+}
+
+#[cfg(feature = "ensemble")]
+fn add_chain(
+    nodes: &mut Vec<onnx_export_rs::proto::NodeProto>,
+    terms: Vec<String>,
+    stem: &str,
+) -> Result<String> {
+    let mut iter = terms.into_iter();
+    let mut current = iter
+        .next()
+        .ok_or_else(|| Error::Backend("ensemble aggregation has no terms".into()))?;
+    for (index, term) in iter.enumerate() {
+        let output = format!("mw_{stem}_sum{index}");
+        nodes.push(make_node(
+            "Add",
+            [current.as_str(), term.as_str()],
+            [output.as_str()],
+            vec![],
+        ));
+        current = output;
+    }
+    Ok(current)
+}
+
+#[cfg(feature = "ensemble")]
+fn aggregate_ensemble(
+    nodes: &mut Vec<onnx_export_rs::proto::NodeProto>,
+    initializers: &mut Vec<onnx_export_rs::proto::TensorProto>,
+    outputs: Vec<String>,
+    aggregation: EnsembleAggregation<'_>,
+) -> Result<String> {
+    match aggregation {
+        EnsembleAggregation::Mean => aggregate_mean(nodes, initializers, outputs),
+        EnsembleAggregation::HardVote { classes, weights } => {
+            aggregate_hard_vote(nodes, initializers, &outputs, classes, weights)
+        }
+        EnsembleAggregation::SoftVote { classes, weights } => {
+            aggregate_soft_vote(nodes, initializers, &outputs, classes, weights)
+        }
+    }
+}
+
+#[cfg(feature = "ensemble")]
+fn aggregate_mean(
+    nodes: &mut Vec<onnx_export_rs::proto::NodeProto>,
+    initializers: &mut Vec<onnx_export_rs::proto::TensorProto>,
+    outputs: Vec<String>,
+) -> Result<String> {
+    let count = outputs.len();
+    let sum = add_chain(nodes, outputs, "mean")?;
+    if count == 1 {
+        return Ok(sum);
+    }
+    initializers.push(scalar_initializer("mw_divisor", count as f64));
+    nodes.push(make_node(
+        "Div",
+        [sum.as_str(), "mw_divisor"],
+        ["mw_output"],
+        vec![],
+    ));
+    Ok("mw_output".into())
+}
+
+#[cfg(feature = "ensemble")]
+fn aggregate_hard_vote(
+    nodes: &mut Vec<onnx_export_rs::proto::NodeProto>,
+    initializers: &mut Vec<onnx_export_rs::proto::TensorProto>,
+    outputs: &[String],
+    classes: &[i64],
+    weights: &[f64],
+) -> Result<String> {
+    if outputs.len() != weights.len() || classes.is_empty() {
+        return Err(Error::Backend(
+            "invalid hard-voting ONNX aggregation".into(),
+        ));
+    }
+    let mut class_scores = Vec::new();
+    for (class_index, class) in classes.iter().enumerate() {
+        let class_name = format!("mw_class_{class_index}");
+        initializers.push(scalar_initializer(&class_name, *class as f64));
+        let mut terms = Vec::new();
+        for (member_index, output) in outputs.iter().enumerate() {
+            let equal = format!("mw_eq_{class_index}_{member_index}");
+            let cast = format!("mw_cast_{class_index}_{member_index}");
+            let weighted = format!("mw_weighted_{class_index}_{member_index}");
+            let weight = format!("mw_weight_{member_index}");
+            if class_index == 0 {
+                initializers.push(scalar_initializer(&weight, weights[member_index]));
+            }
+            nodes.push(make_node(
+                "Equal",
+                [output.as_str(), class_name.as_str()],
+                [equal.as_str()],
+                vec![],
+            ));
+            nodes.push(make_node(
+                "Cast",
+                [equal.as_str()],
+                [cast.as_str()],
+                vec![int_attribute("to", FLOAT as i64)],
+            ));
+            nodes.push(make_node(
+                "Mul",
+                [cast.as_str(), weight.as_str()],
+                [weighted.as_str()],
+                vec![],
+            ));
+            terms.push(weighted);
+        }
+        class_scores.push(add_chain(nodes, terms, &format!("class{class_index}"))?);
+    }
+    nodes.push(make_node(
+        "Concat",
+        class_scores,
+        ["mw_scores"],
+        vec![int_attribute("axis", 1)],
+    ));
+    append_argmax(nodes, "mw_scores");
+    Ok(map_class_index(nodes, initializers, classes, "mw_index_f"))
+}
+
+#[cfg(feature = "ensemble")]
+fn aggregate_soft_vote(
+    nodes: &mut Vec<onnx_export_rs::proto::NodeProto>,
+    initializers: &mut Vec<onnx_export_rs::proto::TensorProto>,
+    outputs: &[String],
+    classes: &[i64],
+    weights: &[f64],
+) -> Result<String> {
+    if outputs.len() != weights.len() || classes.is_empty() {
+        return Err(Error::Backend(
+            "invalid soft-voting ONNX aggregation".into(),
+        ));
+    }
+    let mut terms = Vec::new();
+    for (index, output) in outputs.iter().enumerate() {
+        let weight = format!("mw_weight_{index}");
+        let weighted = format!("mw_weighted_{index}");
+        initializers.push(scalar_initializer(&weight, weights[index]));
+        nodes.push(make_node(
+            "Mul",
+            [output.as_str(), weight.as_str()],
+            [weighted.as_str()],
+            vec![],
+        ));
+        terms.push(weighted);
+    }
+    let scores = add_chain(nodes, terms, "soft")?;
+    append_argmax(nodes, &scores);
+    Ok(map_class_index(nodes, initializers, classes, "mw_index_f"))
+}
+
+#[cfg(feature = "ensemble")]
+fn append_argmax(nodes: &mut Vec<onnx_export_rs::proto::NodeProto>, scores: &str) {
+    nodes.push(make_node(
+        "ArgMax",
+        [scores],
+        ["mw_index"],
+        vec![int_attribute("axis", 1), int_attribute("keepdims", 1)],
+    ));
+    nodes.push(make_node(
+        "Cast",
+        ["mw_index"],
+        ["mw_index_f"],
+        vec![int_attribute("to", FLOAT as i64)],
+    ));
 }
 
 /// A loaded ONNX model, ready to run.

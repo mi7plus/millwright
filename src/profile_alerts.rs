@@ -1,4 +1,7 @@
-use super::{Alert, ColumnProfile, CorrMatrix, Overview, TargetKind, TargetProfile};
+use super::{
+    Alert, CategoricalProfile, ColumnProfile, CorrMatrix, NumericProfile, Overview, TargetKind,
+    TargetProfile,
+};
 
 pub(super) fn alerts(
     overview: &Overview,
@@ -9,86 +12,110 @@ pub(super) fn alerts(
     let mut out = Vec::new();
     let n = overview.nrows.max(1) as f64;
 
-    for col in columns {
-        match col {
-            ColumnProfile::Numeric(np) => {
-                if np.missing as f64 / n > 0.2 {
-                    out.push(Alert {
-                        column: Some(np.name.clone()),
-                        message: format!("{:.0}% missing", 100.0 * np.missing as f64 / n),
-                        suggested: "SimpleImputer",
-                    });
-                }
-                if np.distinct <= 1 {
-                    out.push(Alert {
-                        column: Some(np.name.clone()),
-                        message: "constant / zero-variance".into(),
-                        suggested: "Drop",
-                    });
-                }
-                if np.skew.is_finite() && np.skew.abs() > 2.0 {
-                    out.push(Alert {
-                        column: Some(np.name.clone()),
-                        message: format!("skewed (skew {:.1})", np.skew),
-                        suggested: "PowerTransform",
-                    });
-                }
-                if np.outliers as f64 / n > 0.01 {
-                    out.push(Alert {
-                        column: Some(np.name.clone()),
-                        message: format!("{} IQR outliers", np.outliers),
-                        suggested: "Winsorize",
-                    });
-                }
-            }
-            ColumnProfile::Categorical(cp) => {
-                if cp.missing as f64 / n > 0.2 {
-                    out.push(Alert {
-                        column: Some(cp.name.clone()),
-                        message: format!("{:.0}% missing", 100.0 * cp.missing as f64 / n),
-                        suggested: "SimpleImputer",
-                    });
-                }
-                if cp.distinct > 20 {
-                    out.push(Alert {
-                        column: Some(cp.name.clone()),
-                        message: format!("high cardinality ({} levels)", cp.distinct),
-                        suggested: "TargetEncoder",
-                    });
-                } else if cp.distinct >= 2 {
-                    out.push(Alert {
-                        column: Some(cp.name.clone()),
-                        message: format!("categorical ({} levels)", cp.distinct),
-                        suggested: "OneHotEncoder",
-                    });
-                }
-            }
-        }
+    for column in columns {
+        out.extend(column_alerts(column, n));
     }
+    out.extend(correlation_alerts(corr));
+    out.extend(target_alerts(target));
 
-    for (a, b, r) in &corr.high_pairs {
+    out
+}
+
+fn column_alerts(column: &ColumnProfile, nrows: f64) -> Vec<Alert> {
+    match column {
+        ColumnProfile::Numeric(profile) => numeric_alerts(profile, nrows),
+        ColumnProfile::Categorical(profile) => categorical_alerts(profile, nrows),
+    }
+}
+
+fn missing_alert(name: &str, missing: usize, nrows: f64) -> Option<Alert> {
+    (missing as f64 / nrows > 0.2).then(|| Alert {
+        column: Some(name.to_string()),
+        message: format!("{:.0}% missing", 100.0 * missing as f64 / nrows),
+        suggested: "SimpleImputer",
+    })
+}
+
+fn numeric_alerts(profile: &NumericProfile, nrows: f64) -> Vec<Alert> {
+    let mut out = missing_alert(&profile.name, profile.missing, nrows)
+        .into_iter()
+        .collect::<Vec<_>>();
+    if profile.distinct <= 1 {
         out.push(Alert {
+            column: Some(profile.name.clone()),
+            message: "constant / zero-variance".into(),
+            suggested: "Drop",
+        });
+    }
+    if profile.skew.is_finite() && profile.skew.abs() > 2.0 {
+        out.push(Alert {
+            column: Some(profile.name.clone()),
+            message: format!("skewed (skew {:.1})", profile.skew),
+            suggested: "PowerTransform",
+        });
+    }
+    if profile.outliers as f64 / nrows > 0.01 {
+        out.push(Alert {
+            column: Some(profile.name.clone()),
+            message: format!("{} IQR outliers", profile.outliers),
+            suggested: "Winsorize",
+        });
+    }
+    out
+}
+
+fn categorical_alerts(profile: &CategoricalProfile, nrows: f64) -> Vec<Alert> {
+    let mut out = missing_alert(&profile.name, profile.missing, nrows)
+        .into_iter()
+        .collect::<Vec<_>>();
+    let cardinality = if profile.distinct > 20 {
+        Some((
+            format!("high cardinality ({} levels)", profile.distinct),
+            "TargetEncoder",
+        ))
+    } else if profile.distinct >= 2 {
+        Some((
+            format!("categorical ({} levels)", profile.distinct),
+            "OneHotEncoder",
+        ))
+    } else {
+        None
+    };
+    if let Some((message, suggested)) = cardinality {
+        out.push(Alert {
+            column: Some(profile.name.clone()),
+            message,
+            suggested,
+        });
+    }
+    out
+}
+
+fn correlation_alerts(corr: &CorrMatrix) -> Vec<Alert> {
+    corr.high_pairs
+        .iter()
+        .map(|(a, b, r)| Alert {
             column: Some(format!("{a} ~ {b}")),
             message: format!("correlated |r| = {:.2}", r.abs()),
             suggested: "drop one",
-        });
-    }
+        })
+        .collect()
+}
 
-    if let Some(TargetProfile {
+fn target_alerts(target: &Option<TargetProfile>) -> Option<Alert> {
+    let Some(TargetProfile {
         kind: TargetKind::Classification { classes },
         ..
     }) = target
-    {
-        if let (Some((_, max)), Some((_, min))) = (classes.first(), classes.last()) {
-            if *min > 0 && *max as f64 / *min as f64 >= 3.0 {
-                out.push(Alert {
-                    column: None,
-                    message: format!("class imbalance {}:{}", max, min),
-                    suggested: "Smote",
-                });
-            }
-        }
-    }
-
-    out
+    else {
+        return None;
+    };
+    let (Some((_, max)), Some((_, min))) = (classes.first(), classes.last()) else {
+        return None;
+    };
+    (*min > 0 && *max as f64 / *min as f64 >= 3.0).then(|| Alert {
+        column: None,
+        message: format!("class imbalance {}:{}", max, min),
+        suggested: "Smote",
+    })
 }

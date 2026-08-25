@@ -102,6 +102,10 @@ rows = auto.leaderboard_entries()           <span class="c"># [(config, score), 
 failed = auto.candidate_failures()           <span class="c"># candidates skipped safely</span>
 refit_fallbacks = auto.refit_failures()      <span class="c"># ranked winners that failed full refit</span>
 winner = auto.best_model()                   <span class="c"># pipeline or ensemble</span>
+auto.elapsed_seconds                         <span class="c"># measured search + refit time</span>
+auto.completed_trials, auto.budget_exhausted <span class="c"># budget diagnostics</span>
+if auto.supports_proba:
+    probabilities = auto.predict_proba(test) <span class="c"># direct winner probabilities</span>
 auto.export_onnx(<span class="s">"automl.onnx"</span>)
 
 <span class="c"># SHAP importance, and one portable ONNX artifact</span>

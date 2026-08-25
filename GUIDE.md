@@ -14,7 +14,7 @@ Models** · **Insight** (evaluate, explain, calibrate, detect) · **Deploy**
 
 ```toml
 [dependencies]
-millwright = "2.2.2"        # or features = ["full"] for the whole lifecycle
+millwright = "2.2.3"        # or features = ["full"] for the whole lifecycle
 ```
 
 ```rust

@@ -6,6 +6,8 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2.2.3] - 2026-08-25
+
 ### Added
 - First-class Python bindings and type stubs for voting, bagging, boosting,
   stacking, and AutoML, including ONNX export and ensemble diagnostics.
@@ -14,6 +16,12 @@ All notable changes to Millwright are recorded here. The format follows
 - Python logistic regression and probability prediction for soft voting,
   minute budgets, structured AutoML leaderboards, failure diagnostics, and
   fitted-winner access.
+- Direct probability prediction and capability inspection on `AutoMLResult`,
+  plus elapsed-time, trial-count, and budget-exhaustion diagnostics.
+
+### Changed
+- Split profiling, alert generation, classification metrics, and ONNX ensemble
+  composition into focused helpers without changing their public behavior.
 
 ### Fixed
 - Preserve domain-specific opset imports while composing ONNX ensemble graphs;
@@ -30,6 +38,8 @@ All notable changes to Millwright are recorded here. The format follows
   ABI support with a dependency-free wheel smoke test.
 - Updated website, guide, examples, and deployment notes for the current AutoML
   and native ONNX-ML capabilities.
+- Reject non-finite cross-validation scores so invalid candidates and ensembles
+  cannot win an AutoML search.
 
 ## [2.2.2] - 2026-08-24
 
