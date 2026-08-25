@@ -28,7 +28,6 @@
 //! # }
 //! ```
 
-#[cfg(not(feature = "onnx"))]
 use crate::backends::smartcore::{Knn, NaiveBayes, Svc};
 use crate::backends::smartcore::{LinearRegression, RandomForest};
 use crate::ensemble::{Bagging, Boosting, EnsembleTask, Stacking, Voting};
@@ -45,7 +44,9 @@ use crate::traits::{Estimator, Model, Predictor};
 pub enum Budget {
     /// Evaluate at most this many candidate configurations.
     Trials(usize),
-    /// Search until this many minutes of wall-clock time elapse.
+    /// Soft wall-clock search budget. The current CV evaluation is allowed to
+    /// finish, so the search may overrun by one trial; final refitting is not
+    /// counted because returning an unfitted winner would be unusable.
     Minutes(f64),
 }
 
@@ -75,6 +76,15 @@ pub enum EnsembleKind {
     Stacking,
 }
 
+/// Controls whether AutoML may consider models that cannot be exported to ONNX.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Deployability {
+    /// Search every available model family and optimize predictive score only.
+    Any,
+    /// Restrict the search to models that can be exported to ONNX.
+    Onnx,
+}
+
 /// An automated model search.
 pub struct AutoML {
     task: Task,
@@ -87,6 +97,7 @@ pub struct AutoML {
     ensemble_kinds: Vec<EnsembleKind>,
     prefer_ensemble_on_tie: bool,
     parallel: bool,
+    deployability: Deployability,
 }
 
 impl AutoML {
@@ -109,6 +120,11 @@ impl AutoML {
             ],
             prefer_ensemble_on_tie: false,
             parallel: false,
+            deployability: if cfg!(feature = "onnx") {
+                Deployability::Onnx
+            } else {
+                Deployability::Any
+            },
         }
     }
 
@@ -129,6 +145,11 @@ impl AutoML {
             ],
             prefer_ensemble_on_tie: false,
             parallel: false,
+            deployability: if cfg!(feature = "onnx") {
+                Deployability::Onnx
+            } else {
+                Deployability::Any
+            },
         }
     }
 
@@ -185,6 +206,12 @@ impl AutoML {
         self
     }
 
+    /// Choose whether non-ONNX-exportable candidates may participate.
+    pub fn deployability(mut self, deployability: Deployability) -> Self {
+        self.deployability = deployability;
+        self
+    }
+
     /// Run the search and return the best deployable model with a leaderboard.
     pub fn fit(self, dataset: &Dataset) -> Result<AutoMLResult> {
         match self.budget {
@@ -204,7 +231,7 @@ impl AutoML {
             _ => {}
         }
         let mut candidates = match self.task {
-            Task::Classifier => classifier_candidates(dataset),
+            Task::Classifier => classifier_candidates(dataset, self.deployability),
             Task::Regressor => regressor_candidates(dataset),
         };
         Rng::new(self.seed).shuffle(&mut candidates);
@@ -271,21 +298,25 @@ impl AutoML {
         }
         sort_board(&mut board, self.metric.greater_is_better());
 
-        let ensemble_models = if self.ensemble && board.len() >= 2 {
-            build_ensembles(
-                self.task,
-                &board,
-                self.ensemble_size,
-                self.seed,
-                &self.ensemble_kinds,
-                self.cv.clone(),
-            )
-        } else {
-            Vec::new()
-        };
+        let ensemble_models =
+            if self.ensemble && board.len() >= 2 && !budget_expired(start, self.budget) {
+                build_ensembles(
+                    self.task,
+                    &board,
+                    self.ensemble_size,
+                    self.seed,
+                    &self.ensemble_kinds,
+                    self.cv.clone(),
+                )
+            } else {
+                Vec::new()
+            };
         let mut ensemble_entries = Vec::new();
         let mut ensemble_failures = Vec::new();
         for (label, model) in &ensemble_models {
+            if budget_expired(start, self.budget) {
+                break;
+            }
             match cross_val_score(model.as_ref(), dataset, self.cv.as_ref(), self.metric) {
                 Ok(score) => ensemble_entries.push((label.clone(), score)),
                 Err(error) => ensemble_failures.push((label.clone(), error.to_string())),
@@ -306,29 +337,11 @@ impl AutoML {
             });
         }
 
-        // Decide and refit the winner on the full dataset.
-        let ensemble_wins = ensemble_entries
-            .iter()
-            .any(|(label, score)| label == &leaderboard[0].0 && *score == leaderboard[0].1);
-
-        let (winner, label, score) = if ensemble_wins {
-            let mut model = ensemble_models
-                .into_iter()
-                .find(|(label, _)| label == &leaderboard[0].0)
-                .map(|(_, model)| model)
-                .ok_or_else(|| Error::Pipeline("winning ensemble was not retained".into()))?;
-            model.fit(dataset)?;
-            (
-                Winner::Ensemble(model),
-                leaderboard[0].0.clone(),
-                leaderboard[0].1,
-            )
-        } else {
-            let (best_label, best_score, best_pipe) = &board[0];
-            let mut pipe = best_pipe.clone();
-            pipe.fit(dataset)?;
-            (Winner::Single(pipe), best_label.clone(), *best_score)
-        };
+        // Refit in leaderboard order. A candidate can pass every CV fold and
+        // still fail on the full dataset, so fall back instead of discarding a
+        // completed search.
+        let (winner, label, score, refit_failures) =
+            refit_ranked(&leaderboard, &board, &ensemble_models, dataset)?;
 
         Ok(AutoMLResult {
             winner,
@@ -337,6 +350,7 @@ impl AutoML {
             board: leaderboard,
             candidate_failures,
             ensemble_failures,
+            refit_failures,
         })
     }
 }
@@ -354,6 +368,7 @@ pub struct AutoMLResult {
     board: Vec<(String, f64)>,
     candidate_failures: Vec<(String, String)>,
     ensemble_failures: Vec<(String, String)>,
+    refit_failures: Vec<(String, String)>,
 }
 
 impl AutoMLResult {
@@ -407,6 +422,12 @@ impl AutoMLResult {
                 out.push_str(&format!("  {label}: {error}\n"));
             }
         }
+        if !self.refit_failures.is_empty() {
+            out.push_str("\nfailed full-data refits\n");
+            for (label, error) in &self.refit_failures {
+                out.push_str(&format!("  {label}: {error}\n"));
+            }
+        }
         out
     }
 
@@ -418,6 +439,11 @@ impl AutoMLResult {
     /// Individual pipeline candidates that could not be evaluated.
     pub fn candidate_failures(&self) -> &[(String, String)] {
         &self.candidate_failures
+    }
+
+    /// Ranked candidates that passed CV but failed while refitting on all data.
+    pub fn refit_failures(&self) -> &[(String, String)] {
+        &self.refit_failures
     }
 
     /// Clone the fitted winning model for type-erased integrations.
@@ -460,62 +486,144 @@ fn build_ensembles(
     let k = board.len().min(size);
     let mut out: Vec<(String, Box<dyn Model>)> = Vec::new();
     for kind in kinds {
-        match kind {
-            EnsembleKind::Voting => {
-                let soft = matches!(task, Task::Classifier)
-                    && board.iter().take(k).all(|(_, _, p)| p.supports_proba());
-                let ensemble_task = match task {
-                    Task::Classifier => EnsembleTask::Classification,
-                    Task::Regressor => EnsembleTask::Regression,
-                };
-                let mut model =
-                    if soft { Voting::soft() } else { Voting::hard() }.task(ensemble_task);
-                for (i, (_, _, pipeline)) in board.iter().take(k).enumerate() {
-                    model = model.add(format!("c{i}"), pipeline.clone());
-                }
-                out.push((
-                    format!(
-                        "ensemble:voting-{}(top-{k})",
-                        if soft { "soft" } else { "hard" }
-                    ),
-                    Box::new(model),
-                ));
-            }
-            EnsembleKind::Bagging => out.push((
-                format!("ensemble:bagging(n={size})"),
-                Box::new(
-                    Bagging::of(board[0].2.clone())
-                        .n_estimators(size)
-                        .seed(seed)
-                        .task(match task {
-                            Task::Classifier => EnsembleTask::Classification,
-                            Task::Regressor => EnsembleTask::Regression,
-                        }),
-                ),
-            )),
-            EnsembleKind::Boosting if matches!(task, Task::Classifier) => out.push((
-                format!("ensemble:boosting(n={size})"),
-                Box::new(
-                    Boosting::of(board[0].2.clone())
-                        .n_estimators(size)
-                        .seed(seed),
-                ),
-            )),
-            EnsembleKind::Stacking => {
-                let mut model = match task {
-                    Task::Classifier => Stacking::meta(LogisticRegression::new()),
-                    Task::Regressor => Stacking::meta(LinearRegression::new()),
-                };
-                for (i, (_, _, pipeline)) in board.iter().take(k).enumerate() {
-                    model = model.base(format!("c{i}"), pipeline.clone());
-                }
-                model = model.boxed_cv(cv.clone());
-                out.push((format!("ensemble:stacking(top-{k})"), Box::new(model)));
-            }
-            EnsembleKind::Boosting => {}
+        let candidate = match kind {
+            EnsembleKind::Voting => Some(voting_candidate(task, board, k)),
+            EnsembleKind::Bagging => Some(bagging_candidate(task, &board[0].2, size, seed)),
+            EnsembleKind::Boosting => boosting_candidate(task, &board[0].2, size, seed),
+            EnsembleKind::Stacking => Some(stacking_candidate(task, board, k, cv.clone())),
+        };
+        if let Some(candidate) = candidate {
+            out.push(candidate);
         }
     }
     out
+}
+
+fn ensemble_task(task: Task) -> EnsembleTask {
+    match task {
+        Task::Classifier => EnsembleTask::Classification,
+        Task::Regressor => EnsembleTask::Regression,
+    }
+}
+
+fn voting_candidate(
+    task: Task,
+    board: &[(String, f64, Pipeline)],
+    k: usize,
+) -> (String, Box<dyn Model>) {
+    let soft = matches!(task, Task::Classifier)
+        && board.iter().take(k).all(|(_, _, p)| p.supports_proba());
+    let mut model = if soft { Voting::soft() } else { Voting::hard() }.task(ensemble_task(task));
+    for (i, (_, _, pipeline)) in board.iter().take(k).enumerate() {
+        model = model.add(format!("c{i}"), pipeline.clone());
+    }
+    (
+        format!(
+            "ensemble:voting-{}(top-{k})",
+            if soft { "soft" } else { "hard" }
+        ),
+        Box::new(model),
+    )
+}
+
+fn bagging_candidate(
+    task: Task,
+    base: &Pipeline,
+    size: usize,
+    seed: u64,
+) -> (String, Box<dyn Model>) {
+    (
+        format!("ensemble:bagging(n={size})"),
+        Box::new(
+            Bagging::of(base.clone())
+                .n_estimators(size)
+                .seed(seed)
+                .task(ensemble_task(task)),
+        ),
+    )
+}
+
+fn boosting_candidate(
+    task: Task,
+    base: &Pipeline,
+    size: usize,
+    seed: u64,
+) -> Option<(String, Box<dyn Model>)> {
+    matches!(task, Task::Classifier).then(|| {
+        (
+            format!("ensemble:boosting(n={size})"),
+            Box::new(Boosting::of(base.clone()).n_estimators(size).seed(seed)) as Box<dyn Model>,
+        )
+    })
+}
+
+fn stacking_candidate(
+    task: Task,
+    board: &[(String, f64, Pipeline)],
+    k: usize,
+    cv: Box<dyn CrossValidator>,
+) -> (String, Box<dyn Model>) {
+    let mut model = match task {
+        Task::Classifier => Stacking::meta(LogisticRegression::new()),
+        Task::Regressor => Stacking::meta(LinearRegression::new()),
+    };
+    for (i, (_, _, pipeline)) in board.iter().take(k).enumerate() {
+        model = model.base(format!("c{i}"), pipeline.clone());
+    }
+    (
+        format!("ensemble:stacking(top-{k})"),
+        Box::new(model.boxed_cv(cv)),
+    )
+}
+
+fn budget_expired(start: std::time::Instant, budget: Budget) -> bool {
+    matches!(budget, Budget::Minutes(minutes) if start.elapsed().as_secs_f64() >= minutes * 60.0)
+}
+
+type RefitOutcome = (Winner, String, f64, Vec<(String, String)>);
+
+fn refit_ranked(
+    leaderboard: &[(String, f64)],
+    board: &[(String, f64, Pipeline)],
+    ensembles: &[(String, Box<dyn Model>)],
+    dataset: &Dataset,
+) -> Result<RefitOutcome> {
+    let mut failures = Vec::new();
+    for (label, score) in leaderboard {
+        let winner = if let Some((_, model)) = ensembles.iter().find(|(name, _)| name == label) {
+            let mut model = model.clone();
+            match model.fit(dataset) {
+                Ok(()) => Some(Winner::Ensemble(model)),
+                Err(error) => {
+                    failures.push((label.clone(), error.to_string()));
+                    None
+                }
+            }
+        } else if let Some((_, _, pipeline)) = board.iter().find(|(name, _, _)| name == label) {
+            let mut pipeline = pipeline.clone();
+            match pipeline.fit(dataset) {
+                Ok(()) => Some(Winner::Single(pipeline)),
+                Err(error) => {
+                    failures.push((label.clone(), error.to_string()));
+                    None
+                }
+            }
+        } else {
+            failures.push((label.clone(), "ranked candidate was not retained".into()));
+            None
+        };
+        if let Some(winner) = winner {
+            return Ok((winner, label.clone(), *score, failures));
+        }
+    }
+    let details = failures
+        .iter()
+        .map(|(label, error)| format!("{label}: {error}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(Error::Pipeline(format!(
+        "AutoML could not refit any ranked candidate: {details}"
+    )))
 }
 
 impl Predictor for AutoMLResult {
@@ -569,7 +677,10 @@ fn seeded_base(dataset: &Dataset) -> Option<Pipeline> {
 
 /// Preprocessing × classifier-family × hyperparameter candidates.
 #[cfg_attr(not(feature = "eda"), allow(unused_variables))]
-fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
+fn classifier_candidates(
+    dataset: &Dataset,
+    deployability: Deployability,
+) -> Vec<(String, Pipeline)> {
     let mut out = Vec::new();
 
     // Seed the preprocessing from EDA's suggestion; vary only the model on top.
@@ -577,14 +688,20 @@ fn classifier_candidates(dataset: &Dataset) -> Vec<(String, Pipeline)> {
     if let Some(base) = seeded_base(dataset) {
         let prep = base.step_names().join("+");
         let prep = if prep.is_empty() { "raw".into() } else { prep };
-        push_classifier_models(&mut out, &base, &format!("profile[{prep}]"), dataset);
+        push_classifier_models(
+            &mut out,
+            &base,
+            &format!("profile[{prep}]"),
+            dataset,
+            deployability,
+        );
         return out;
     }
 
     // Fallback: search the scaler as well as the model.
     for scaler in ["none", "standard", "minmax"] {
         let base = preprocessing_candidate(scaler);
-        push_classifier_models(&mut out, &base, scaler, dataset);
+        push_classifier_models(&mut out, &base, scaler, dataset, deployability);
     }
     out
 }
@@ -596,6 +713,7 @@ fn push_classifier_models(
     base: &Pipeline,
     prefix: &str,
     dataset: &Dataset,
+    deployability: Deployability,
 ) {
     let depths = [Some(2u16), Some(4), Some(8), None];
     let trees = [50u16, 100];
@@ -614,8 +732,7 @@ fn push_classifier_models(
             ));
         }
     }
-    #[cfg(not(feature = "onnx"))]
-    {
+    if deployability == Deployability::Any {
         for &k in &[3usize, 5, 9] {
             out.push((
                 format!("{prefix} | knn(k={k})"),
@@ -760,6 +877,7 @@ mod tests {
             board: vec![("ensemble:voting-soft(top-2)".into(), 1.0)],
             candidate_failures: Vec::new(),
             ensemble_failures: Vec::new(),
+            refit_failures: Vec::new(),
         };
         let path = std::env::temp_dir().join(format!(
             "millwright-automl-ensemble-{}.onnx",
@@ -834,6 +952,38 @@ mod tests {
             .is_err());
     }
 
+    #[test]
+    fn deployability_policy_controls_non_onnx_candidates() {
+        let dataset = two_class();
+        let any = classifier_candidates(&dataset, Deployability::Any);
+        let onnx = classifier_candidates(&dataset, Deployability::Onnx);
+        assert!(any.iter().any(|(label, _)| label.contains("knn(")));
+        assert!(any.iter().any(|(label, _)| label.contains("naive_bayes")));
+        assert!(any.iter().any(|(label, _)| label.contains("svc(")));
+        assert!(!onnx.iter().any(|(label, _)| {
+            label.contains("knn(") || label.contains("naive_bayes") || label.contains("svc(")
+        }));
+    }
+
+    #[test]
+    fn full_data_refit_falls_back_to_next_ranked_candidate() {
+        let dataset = two_class();
+        let bad =
+            Pipeline::new().estimator("logistic", LogisticRegression::new().learning_rate(0.0));
+        let good = Pipeline::new().estimator("logistic", LogisticRegression::new());
+        let board = vec![
+            ("bad".to_string(), 1.0, bad),
+            ("good".to_string(), 0.9, good),
+        ];
+        let leaderboard = vec![("bad".to_string(), 1.0), ("good".to_string(), 0.9)];
+        let (winner, label, score, failures) =
+            refit_ranked(&leaderboard, &board, &[], &dataset).unwrap();
+        assert!(matches!(winner, Winner::Single(_)));
+        assert_eq!(label, "good");
+        assert_eq!(score, 0.9);
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].0, "bad");
+    }
     #[cfg(not(feature = "onnx"))]
     #[test]
     fn candidate_failures_do_not_abort_search() {

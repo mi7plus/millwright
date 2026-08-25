@@ -103,12 +103,13 @@ arima.fit(&amp;series)?;                  <span class="c">// &[f64]</span>
       <div class="head col">
         <div class="eyebrow">Synthesis</div>
         <h2>AutoML — the framework, pointed at itself.</h2>
-        <p class="muted">Profiling, preprocessing, CV, search, and ensembling are exactly what an AutoML engine needs — so <code class="inl">AutoML</code> is not a bolt-on, it is the framework orchestrating its own parts. Point it at data and a budget; get a leaderboard and the best <em>deployable</em> model.</p>
+        <p class="muted">Profiling, preprocessing, CV, search, and ensembling are exactly what an AutoML engine needs — so <code class="inl">AutoML</code> is not a bolt-on, it is the framework orchestrating its own parts. Choose ONNX-only candidates or the broadest predictive search, then get a leaderboard and a fitted winner. Minute budgets are soft: an in-flight CV trial finishes before the cutoff is observed.</p>
       </div>
 <pre><span class="k">let</span> result = <span class="f">AutoML</span>::classifier()      <span class="c">// or ::regressor()</span>
     .budget(<span class="f">Budget</span>::trials(<span class="k">20</span>))         <span class="c">// or Budget::minutes(10)</span>
     .metric(<span class="f">Metric</span>::F1)
     .cv(<span class="f">StratifiedKFold</span>::new(<span class="k">5</span>))
+    .deployability(<span class="f">Deployability</span>::Onnx)
     .seed(<span class="k">0</span>)
     .fit(&amp;train)?;
 

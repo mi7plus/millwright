@@ -174,7 +174,7 @@ pub mod prelude {
     pub use crate::ensemble::{Bagging, Boosting, EnsembleTask, Voting, VotingKind};
 
     #[cfg(feature = "automl")]
-    pub use crate::automl::{AutoML, AutoMLResult, Budget, EnsembleKind};
+    pub use crate::automl::{AutoML, AutoMLResult, Budget, Deployability, EnsembleKind};
     #[cfg(all(feature = "ensemble", feature = "model-selection"))]
     pub use crate::ensemble::Stacking;
 }

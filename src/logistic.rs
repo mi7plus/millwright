@@ -193,12 +193,36 @@ impl Estimator for LogisticRegression {
     }
 
     fn fit(&mut self, dataset: &Dataset) -> Result<()> {
+        if !self.learning_rate.is_finite() || self.learning_rate <= 0.0 {
+            return Err(Error::Param(
+                "LogisticRegression learning_rate must be finite and > 0".into(),
+            ));
+        }
+        if self.epochs == 0 {
+            return Err(Error::Param(
+                "LogisticRegression epochs must be >= 1".into(),
+            ));
+        }
+        if !self.l2.is_finite() || self.l2 < 0.0 {
+            return Err(Error::Param(
+                "LogisticRegression l2 must be finite and >= 0".into(),
+            ));
+        }
         let frame = dataset.features();
         let (n, p) = frame.shape();
         if n == 0 {
             return Err(Error::Shape("LogisticRegression: empty dataset".into()));
         }
-        let mut classes: Vec<i64> = dataset.target().iter().map(|v| v.round() as i64).collect();
+        if dataset
+            .target()
+            .iter()
+            .any(|value| !value.is_finite() || value.fract() != 0.0)
+        {
+            return Err(Error::Param(
+                "LogisticRegression labels must be finite integers".into(),
+            ));
+        }
+        let mut classes: Vec<i64> = dataset.target().iter().map(|v| *v as i64).collect();
         classes.sort_unstable();
         classes.dedup();
         if classes.len() != 2 {
@@ -211,7 +235,7 @@ impl Estimator for LogisticRegression {
         let y: Vec<f64> = dataset
             .target()
             .iter()
-            .map(|v| if v.round() as i64 == pos { 1.0 } else { 0.0 })
+            .map(|v| if *v as i64 == pos { 1.0 } else { 0.0 })
             .collect();
 
         // learn standardization
@@ -376,5 +400,20 @@ mod tests {
     fn predict_before_fit_errors() {
         let f = Frame::from_rows(vec![vec![1.0]], vec!["x".into()]).unwrap();
         assert!(LogisticRegression::new().predict(&f).is_err());
+    }
+
+    #[test]
+    fn validates_training_parameters_and_labels() {
+        let ds = separable();
+        assert!(LogisticRegression::new()
+            .learning_rate(0.0)
+            .fit(&ds)
+            .is_err());
+        assert!(LogisticRegression::new().epochs(0).fit(&ds).is_err());
+        assert!(LogisticRegression::new().l2(-0.1).fit(&ds).is_err());
+
+        let fractional =
+            Dataset::new(ds.features().clone(), vec![0.1, 0.1, 0.1, 1.1, 1.1, 1.1]).unwrap();
+        assert!(LogisticRegression::new().fit(&fractional).is_err());
     }
 }
