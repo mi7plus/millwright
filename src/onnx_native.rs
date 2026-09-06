@@ -84,6 +84,13 @@ enum Op {
         cols: Vec<usize>,
         out: String,
     },
+    // Gather with a constant data table and dynamic indices (e.g. class-label
+    // lookup after ArgMax): out[r] = table[indices[r]].
+    GatherData {
+        table: Vec<f32>,
+        indices: String,
+        out: String,
+    },
     Round {
         input: String,
         out: String,
@@ -207,16 +214,28 @@ impl NativeGraph {
                     out: out(0),
                 }),
                 "Gather" => {
-                    // indices live in the second input (an int64 initializer)
-                    let cols = raw
-                        .get(n.input[1].as_str())
-                        .map(|t| read_i64s(t).iter().map(|v| *v as usize).collect())
-                        .unwrap_or_default();
-                    ops.push(Op::Gather {
-                        input: inp(0),
-                        cols,
-                        out: out(0),
-                    });
+                    if let Some(t) = raw.get(n.input[1].as_str()) {
+                        // constant indices -> select those columns (one-hot)
+                        let cols = read_i64s(t).iter().map(|v| *v as usize).collect();
+                        ops.push(Op::Gather {
+                            input: inp(0),
+                            cols,
+                            out: out(0),
+                        });
+                    } else if let Some(t) = raw.get(n.input[0].as_str()) {
+                        // constant data table, dynamic indices -> table lookup
+                        // (class-label mapping after ArgMax)
+                        let table = read_i64s(t).iter().map(|v| *v as f32).collect();
+                        ops.push(Op::GatherData {
+                            table,
+                            indices: inp(1),
+                            out: out(0),
+                        });
+                    } else {
+                        return Err(Error::Backend(
+                            "native ONNX eval: Gather needs a constant operand".into(),
+                        ));
+                    }
                 }
                 "Round" => ops.push(Op::Round {
                     input: inp(0),
@@ -436,6 +455,27 @@ impl NativeGraph {
                         Mat {
                             rows: x.rows,
                             cols: cols.len(),
+                            data,
+                        },
+                    );
+                }
+                Op::GatherData {
+                    table,
+                    indices,
+                    out,
+                } => {
+                    // out[r] = table[indices[r]] (class-label lookup)
+                    let idx = get(&env, indices)?;
+                    let data = idx
+                        .data
+                        .iter()
+                        .map(|v| table.get(*v as usize).copied().unwrap_or(f32::NAN))
+                        .collect();
+                    env.insert(
+                        out.as_str(),
+                        Mat {
+                            rows: idx.rows,
+                            cols: idx.cols,
                             data,
                         },
                     );

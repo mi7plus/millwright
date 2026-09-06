@@ -665,6 +665,43 @@ fn append_argmax(nodes: &mut Vec<onnx_export_rs::proto::NodeProto>, scores: &str
     ));
 }
 
+/// Append a class-label lookup to a classifier graph whose output is a 0-based
+/// class *index* (e.g. the `ArgMax` ending a tree-ensemble export). Splices a
+/// `Gather(labels, index)` so the graph emits the original class labels instead
+/// of `0..k`. A no-op mapping (`labels == 0..k`) is skipped.
+pub(crate) fn append_label_map(proto: &mut ModelProto, labels: &[i64]) -> Result<()> {
+    // identity mapping needs no gather
+    if labels.iter().copied().eq(0..labels.len() as i64) {
+        return Ok(());
+    }
+    let graph = proto
+        .graph
+        .as_mut()
+        .ok_or_else(|| Error::Backend("exported model has no graph".into()))?;
+    let index_out = graph
+        .output
+        .first()
+        .map(|o| o.name.clone())
+        .ok_or_else(|| Error::Backend("exported model has no output".into()))?;
+
+    graph.initializer.push(make_i64_tensor(
+        "mw_labels",
+        &[labels.len()],
+        labels.to_vec(),
+    ));
+    // Gather(data = labels, indices = class index, axis = 0) -> class label
+    graph.node.push(make_node(
+        "Gather",
+        ["mw_labels", index_out.as_str()],
+        ["mw_label"],
+        vec![int_attribute("axis", 0)],
+    ));
+    if let Some(o) = graph.output.first_mut() {
+        o.name = "mw_label".into();
+    }
+    Ok(())
+}
+
 /// A loaded ONNX model, ready to run.
 ///
 /// tract runs NN / linear graphs; ONNX-ML ops it does not implement (tree

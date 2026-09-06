@@ -6,6 +6,15 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Exported `RandomForest` ONNX now returns class labels, not the argmax
+  index.** The tree-ensemble export ended at `ArgMax → 0..k`, silently ignoring
+  the model's class labels — so a forest trained on labels like `[1, 2, 3]` or
+  `[2, 5, 9]` served the wrong values through ONNX (both tract and the native
+  interpreter). A `Gather(labels, index)` is now appended (skipped when the
+  mapping is the identity), and `onnx_native` gained the constant-table `Gather`
+  variant to match. Regression test covers 0-based, 1-based, and sparse labels.
+
 ## [2.2.3] - 2026-08-25
 
 ### Added
