@@ -83,11 +83,18 @@ contract, so training, evaluation, export, serving, and monitoring compose.
   which wraps any `ProbaPredictor` and returns calibrated probabilities.
 - **Anomaly detection** (`src/anomaly.rs`, feature `anomaly`): `Mahalanobis` and
   `KnnScore`, unified behind an `OutlierDetector` trait.
+- **GPU compute** (`src/gpu.rs`, via [`wgpu`], feature `gpu-compute`): portable
+  GPU primitives — `gpu::gemm` and `gpu::pairwise_sqdist` (Vulkan / Metal / DX12,
+  so it runs on any system) — plus opt-in GPU paths on the estimators that use
+  them: `KnnScore::on_gpu()` (distances) and `Mahalanobis::on_gpu()` (covariance).
+  CPU stays the default and the always-available fallback; the GPU win grows with
+  problem size.
 
 [`imbalance-rs`]: https://crates.io/crates/imbalance-rs
 [`model-selection-rs`]: https://crates.io/crates/model-selection-rs
 [`linfa`]: https://crates.io/crates/linfa
 [`hyperopt-rs`]: https://crates.io/crates/hyperopt-rs
+[`wgpu`]: https://crates.io/crates/wgpu
 ### Phase 4 · portability & Python — *train once; run in Rust, Python, or any ONNX runtime*
 
 - **ONNX export** (`src/onnx.rs`, via [`onnx-export-rs`], feature `onnx`):
@@ -310,6 +317,10 @@ cargo run --example portability --features "smartcore-backend onnx"
 
 ```bash
 cargo run --example gpu --features gpu-inference
+```
+
+```bash
+cargo run --example gpu_compute --features "gpu-compute anomaly"
 ```
 
 ```bash

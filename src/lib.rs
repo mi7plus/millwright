@@ -70,6 +70,8 @@ pub mod diagnostics;
 pub mod ensemble;
 #[cfg(feature = "explain")]
 pub mod explain;
+#[cfg(feature = "gpu-compute")]
+pub mod gpu;
 #[cfg(feature = "monitor")]
 pub mod monitor;
 #[cfg(feature = "onnx")]
@@ -154,6 +156,9 @@ pub mod prelude {
 
     #[cfg(feature = "explain")]
     pub use crate::explain::{permutation_importance, Explain, Explainer, Explanation};
+
+    #[cfg(feature = "gpu-compute")]
+    pub use crate::gpu;
 
     #[cfg(feature = "viz")]
     pub use crate::viz;
