@@ -158,6 +158,8 @@ pub mod prelude {
     #[cfg(feature = "viz")]
     pub use crate::viz;
 
+    #[cfg(feature = "gpu-inference")]
+    pub use crate::onnx::Device;
     #[cfg(feature = "onnx")]
     pub use crate::onnx::{ExportOnnx, InferenceModel};
 

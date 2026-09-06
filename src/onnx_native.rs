@@ -5,6 +5,245 @@ use onnx_export_rs::proto::{ModelProto, NodeProto, TensorProto};
 use crate::error::{Error, Result};
 use crate::frame::Frame;
 
+/// Re-encode every `TreeEnsembleRegressor` in the graph as plain tensor ops
+/// (`Gather` / `LessOrEqual` / `MatMul` / `Equal`), which GPU execution
+/// providers can run — the ONNX-ML tree op cannot run on a GPU. See
+/// [`crate::onnx::ExportOnnx::to_onnx_gpu`]. Other graphs are left untouched.
+///
+/// Each tree becomes, per row: gather the tested feature at every internal node,
+/// compare to the thresholds to get the left/right decisions `p`, multiply by a
+/// node→leaf path matrix `C` and match the per-leaf left-count `D` to pick the
+/// active leaf, then read that leaf's values from `V`. Trees are summed. The
+/// result is numerically identical to the tree op (integer path counts are exact
+/// in f32), but every op is one a GPU provider supports.
+///
+/// This uses one small matrix set per tree, so it stays modest for wide/shallow
+/// forests but grows with tree depth; it is opt-in for exactly that reason.
+pub(super) fn tensorize_tree_ensembles(proto: &mut ModelProto) -> Result<()> {
+    use onnx_export_rs::graph_builder::make_node;
+
+    let graph = proto
+        .graph
+        .as_mut()
+        .ok_or_else(|| Error::Backend("tensorize: exported model has no graph".into()))?;
+
+    // Rewrite each tree-ensemble node in place (there is normally one).
+    while let Some(pos) = graph
+        .node
+        .iter()
+        .position(|n| n.op_type == "TreeEnsembleRegressor")
+    {
+        let node = graph.node[pos].clone();
+        let input = node
+            .input
+            .first()
+            .cloned()
+            .ok_or_else(|| Error::Backend("tensorize: tree node has no input".into()))?;
+        let output = node
+            .output
+            .first()
+            .cloned()
+            .ok_or_else(|| Error::Backend("tensorize: tree node has no output".into()))?;
+        let ens = TreeEnsemble::from_node(&node)?;
+
+        let mut nodes = Vec::new();
+        let mut inits = Vec::new();
+        let mut scores = Vec::new();
+        for (ti, tree) in ens.trees.iter().enumerate() {
+            scores.push(build_tree_gemm(
+                tree,
+                ens.n_targets,
+                ti,
+                &input,
+                &mut nodes,
+                &mut inits,
+            )?);
+        }
+        if scores.is_empty() {
+            return Err(Error::Backend(
+                "tensorize: tree ensemble has no trees".into(),
+            ));
+        }
+        // Sum the per-tree score tensors into the tree node's original output.
+        if scores.len() == 1 {
+            nodes.push(make_node(
+                "Identity",
+                [scores[0].as_str()],
+                [output.as_str()],
+                vec![],
+            ));
+        } else {
+            let mut cur = scores[0].clone();
+            for (k, next) in scores.iter().enumerate().skip(1) {
+                let out = if k + 1 == scores.len() {
+                    output.clone()
+                } else {
+                    format!("mw_gemm_sum{k}")
+                };
+                nodes.push(make_node(
+                    "Add",
+                    [cur.as_str(), next.as_str()],
+                    [out.as_str()],
+                    vec![],
+                ));
+                cur = out;
+            }
+        }
+        graph.node.splice(pos..=pos, nodes);
+        graph.initializer.extend(inits);
+    }
+    Ok(())
+}
+
+/// Emit the tensor-op encoding of one tree, appending its nodes/initializers and
+/// returning the name of its `(rows × n_targets)` score tensor.
+fn build_tree_gemm(
+    tree: &Tree,
+    n_targets: usize,
+    ti: usize,
+    input: &str,
+    nodes: &mut Vec<NodeProto>,
+    inits: &mut Vec<TensorProto>,
+) -> Result<String> {
+    use ndarray::Array2;
+    use onnx_export_rs::graph_builder::{
+        int_attribute, make_i64_tensor, make_node, make_tensor, FLOAT,
+    };
+
+    if tree.nodes.is_empty() {
+        return Err(Error::Backend("tensorize: empty tree".into()));
+    }
+
+    // Depth-first walk: number internal nodes (columns of the decision matrix)
+    // and collect, per leaf, the path taken (+1 left / -1 right at each node).
+    let mut feats: Vec<i64> = Vec::new();
+    let mut thresholds: Vec<f32> = Vec::new();
+    let mut leaf_paths: Vec<Vec<(usize, f32)>> = Vec::new();
+    let mut leaf_weights: Vec<Vec<f32>> = Vec::new();
+    let mut stack: Vec<(usize, Vec<(usize, f32)>)> = vec![(0, Vec::new())];
+    while let Some((nid, path)) = stack.pop() {
+        let node = &tree.nodes[nid];
+        if node.is_leaf {
+            let mut w = vec![0.0f32; n_targets];
+            for &(tgt, weight) in &node.leaf {
+                if tgt < n_targets {
+                    w[tgt] += weight;
+                }
+            }
+            leaf_weights.push(w);
+            leaf_paths.push(path);
+        } else {
+            let col = feats.len();
+            feats.push(node.feature as i64);
+            thresholds.push(node.threshold);
+            let mut left = path.clone();
+            left.push((col, 1.0));
+            stack.push((node.true_child, left));
+            let mut right = path;
+            right.push((col, -1.0));
+            stack.push((node.false_child, right));
+        }
+    }
+
+    let li = feats.len();
+    let ll = leaf_weights.len();
+    let t = n_targets;
+    let score = format!("mw_gemm_t{ti}_score");
+
+    let arr = |rows: usize, cols: usize, data: Vec<f32>| -> Result<_> {
+        Array2::from_shape_vec((rows, cols), data)
+            .map(|a| a.into_dyn())
+            .map_err(|e| Error::Backend(format!("tensorize: bad matrix shape: {e}")))
+    };
+
+    // A leaf-only tree contributes a constant score row (broadcast over the batch).
+    if li == 0 {
+        inits.push(make_tensor(&score, &arr(1, t, leaf_weights[0].clone())?));
+        return Ok(score);
+    }
+
+    // C: internal-node → leaf path matrix (I × L). D: per-leaf left-count (1 × L).
+    let mut c = vec![0.0f32; li * ll];
+    let mut d = vec![0.0f32; ll];
+    for (leaf, path) in leaf_paths.iter().enumerate() {
+        for &(col, dir) in path {
+            c[col * ll + leaf] = dir;
+            if dir > 0.0 {
+                d[leaf] += 1.0;
+            }
+        }
+    }
+    // V: per-leaf target weights (L × T).
+    let mut v = vec![0.0f32; ll * t];
+    for (leaf, w) in leaf_weights.iter().enumerate() {
+        v[leaf * t..leaf * t + t].copy_from_slice(w);
+    }
+
+    let feat_name = format!("mw_gemm_t{ti}_feat");
+    let thr_name = format!("mw_gemm_t{ti}_thr");
+    let c_name = format!("mw_gemm_t{ti}_c");
+    let d_name = format!("mw_gemm_t{ti}_d");
+    let v_name = format!("mw_gemm_t{ti}_v");
+    inits.push(make_i64_tensor(&feat_name, &[li], feats));
+    inits.push(make_tensor(&thr_name, &arr(1, li, thresholds)?));
+    inits.push(make_tensor(&c_name, &arr(li, ll, c)?));
+    inits.push(make_tensor(&d_name, &arr(1, ll, d)?));
+    inits.push(make_tensor(&v_name, &arr(ll, t, v)?));
+
+    let xa = format!("mw_gemm_t{ti}_xa");
+    let pb = format!("mw_gemm_t{ti}_pb");
+    let p = format!("mw_gemm_t{ti}_p");
+    let s = format!("mw_gemm_t{ti}_s");
+    let eb = format!("mw_gemm_t{ti}_eb");
+    let e = format!("mw_gemm_t{ti}_e");
+    // gather x[feature] at each node -> (rows × I)
+    nodes.push(make_node(
+        "Gather",
+        [input, feat_name.as_str()],
+        [xa.as_str()],
+        vec![int_attribute("axis", 1)],
+    ));
+    // BRANCH_LEQ: left taken when x <= threshold
+    nodes.push(make_node(
+        "LessOrEqual",
+        [xa.as_str(), thr_name.as_str()],
+        [pb.as_str()],
+        vec![],
+    ));
+    nodes.push(make_node(
+        "Cast",
+        [pb.as_str()],
+        [p.as_str()],
+        vec![int_attribute("to", FLOAT as i64)],
+    ));
+    nodes.push(make_node(
+        "MatMul",
+        [p.as_str(), c_name.as_str()],
+        [s.as_str()],
+        vec![],
+    ));
+    // the active leaf is the one whose left-count matches exactly
+    nodes.push(make_node(
+        "Equal",
+        [s.as_str(), d_name.as_str()],
+        [eb.as_str()],
+        vec![],
+    ));
+    nodes.push(make_node(
+        "Cast",
+        [eb.as_str()],
+        [e.as_str()],
+        vec![int_attribute("to", FLOAT as i64)],
+    ));
+    nodes.push(make_node(
+        "MatMul",
+        [e.as_str(), v_name.as_str()],
+        [score.as_str()],
+        vec![],
+    ));
+    Ok(score)
+}
+
 /// Does this graph use an ONNX-ML op tract cannot run?
 pub fn needs_native(proto: &ModelProto) -> bool {
     proto

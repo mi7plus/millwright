@@ -74,6 +74,27 @@ fs2 = { version = "0.4", optional = true }
 # so both versions coexist; converted only at these adapters' edges.
 ndarray015 = { package = "ndarray", version = "0.15", optional = true }
 
+# GPU-accelerated ONNX inference via onnxruntime (the `ort` crate). Pinned to an
+# exact pre-release: caret ranges do not span pre-release versions cleanly, and
+# a stray bump could move the native runtime underneath us. `download-binaries`
+# fetches a prebuilt onnxruntime for the target at build time, so a plain
+# `cargo build --features gpu-inference` works on any OS with no system install.
+# The per-OS GPU execution providers are enabled in the target tables below.
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "ndarray", "download-binaries", "tls-rustls"] }
+
+# Per-OS GPU execution providers, merged into `ort` above by target. DirectML
+# (Windows) and CoreML (macOS) load with no extra runtime — the onnxruntime
+# binary works even with no GPU present, falling back to CPU — so they are
+# enabled automatically. CUDA needs a separate CUDA runtime installed and a
+# CUDA-linked binary can fail to load without it, so it is NOT automatic; enable
+# the `gpu-cuda` feature for it (see [features]). `Device::Auto` tries whichever
+# GPU provider is compiled in first, then always falls back to CPU.
+[target.'cfg(target_os = "windows")'.dependencies]
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["directml"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["coreml"] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tower = { version = "0.5", features = ["util"] }
@@ -81,11 +102,19 @@ http-body-util = "0.1"
 criterion = "0.5"
 proptest = "1"
 tempfile = "3"
+# Serialize GPU tests so parallel test threads don't create many concurrent
+# onnxruntime GPU sessions (which can exhaust / TDR a single consumer GPU).
+serial_test = "3"
 
 [[bench]]
 name = "throughput"
 harness = false
 required-features = ["smartcore-backend"]
+
+[[bench]]
+name = "gpu_inference"
+harness = false
+required-features = ["gpu-inference"]
 
 [features]
 # Phase 0 · THE SPINE — the smartcore backend is the first (and default) engine.
@@ -177,6 +206,21 @@ monitor = ["dep:driftwatch"]
 # by the tract InferenceModel and an optional drift monitor.
 serve = ["dep:axum", "dep:tokio", "dep:serde", "dep:serde_json", "onnx"]
 
+# GPU-accelerated inference via onnxruntime (`ort`). Adds `InferenceModel::
+# load_on(path, Device)` running an exported ONNX model through onnxruntime's
+# execution providers: `Device::Auto` picks the OS-native GPU provider (DirectML
+# on Windows, CoreML on macOS, CUDA on Linux) and always falls back to CPU, so
+# it runs on any system. Deliberately NOT in `full`: it links a native
+# onnxruntime binary (fetched at build time), which not every build wants.
+# The GPU win lands on linear / large-batch graphs; tree-ensemble (ai.onnx.ml)
+# ops run on the onnxruntime CPU provider regardless of device.
+gpu-inference = ["dep:ort", "onnx"]
+
+# NVIDIA CUDA execution provider (Linux / Windows), on top of `gpu-inference`.
+# Opt-in because it needs the CUDA runtime installed and its binary can fail to
+# load without it — unlike the always-safe DirectML / CoreML / CPU providers.
+gpu-cuda = ["gpu-inference", "ort/cuda"]
+
 # Every Rust-facing feature (everything except the Python extension).
 full = [
     "smartcore-backend",
@@ -242,6 +286,10 @@ required-features = ["smartcore-backend", "onnx"]
 [[example]]
 name = "operations"
 required-features = ["smartcore-backend", "onnx", "registry", "monitor", "serve"]
+
+[[example]]
+name = "gpu"
+required-features = ["gpu-inference"]
 
 [[example]]
 name = "specialized"
