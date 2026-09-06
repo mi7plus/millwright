@@ -6,6 +6,16 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-09-06
+
+### Fixed
+- Release workflow: gitignore the CI release-staging dir (`release-assets/` — the
+  built wheels, sdist, `.crate`, and SBOM the publish job downloads into the
+  checkout) so `cargo publish` no longer aborts on an unclean working tree. This
+  had silently blocked the crates.io / PyPI publish since 2.2.1; 2.3.1 is the
+  first version to actually ship the 2.3.0 GPU features below.
+
+
 ## [2.3.0] - 2026-09-06
 
 ### Added

@@ -13,3 +13,7 @@
 /wheels
 *.pyd
 __pycache__/
+
+# CI release staging (built wheels, sdist, .crate, SBOM). Never committed, and
+# kept out of cargo publish's working-tree dirty check + package file list.
+/release-assets
