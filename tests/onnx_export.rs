@@ -149,3 +149,41 @@ fn impute_scale_linear_serves_via_tract() {
     }
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn forest_onnx_maps_class_labels() {
+    // A forest with non-0-based labels must serve the labels it predicts, not
+    // the raw argmax index.
+    for labels in [[0.0, 1.0, 2.0], [1.0, 2.0, 3.0], [2.0, 5.0, 9.0]] {
+        let mut rows = Vec::new();
+        let mut y = Vec::new();
+        for i in 0..15 {
+            rows.push(vec![i as f64 * 0.05, 0.0]);
+            y.push(labels[0]);
+            rows.push(vec![5.0 + i as f64 * 0.05, 5.0]);
+            y.push(labels[1]);
+            rows.push(vec![10.0 + i as f64 * 0.05, 10.0]);
+            y.push(labels[2]);
+        }
+        let cols = vec!["a".to_string(), "b".to_string()];
+        let ds = Dataset::new(Frame::from_rows(rows, cols.clone()).unwrap(), y).unwrap();
+        let probe =
+            Frame::from_rows(vec![vec![0.1, 0.0], vec![5.1, 5.0], vec![10.1, 10.0]], cols).unwrap();
+
+        let mut rf = RandomForest::new().n_trees(20).max_depth(4);
+        rf.fit(&ds).unwrap();
+        let native = rf.predict(&probe).unwrap();
+
+        let path = std::env::temp_dir().join(format!("mw_labels_{}.onnx", labels[2] as i64));
+        rf.export_onnx(&path).unwrap();
+        let served = InferenceModel::load(&path)
+            .unwrap()
+            .predict(&probe)
+            .unwrap();
+        assert_eq!(
+            native, served,
+            "labels {labels:?} must round-trip through ONNX"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+}

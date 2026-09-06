@@ -493,10 +493,15 @@ impl crate::onnx::ExportOnnx for RandomForest {
             .model
             .as_ref()
             .ok_or_else(|| Error::NotFitted("RandomForest::to_onnx".into()))?;
-        let (forest, _labels) = random_forest_classifier(&**model)
+        let (forest, labels) = random_forest_classifier(&**model)
             .map_err(|e| Error::Backend(format!("RandomForest ONNX adapter failed: {e}")))?;
-        export_tree_ensemble(&forest, TreeTask::Classification)
-            .map_err(|e| Error::Backend(format!("RandomForest ONNX export failed: {e}")))
+        let mut proto = export_tree_ensemble(&forest, TreeTask::Classification)
+            .map_err(|e| Error::Backend(format!("RandomForest ONNX export failed: {e}")))?;
+        // The export ends in ArgMax -> 0-based class index; map it back to the
+        // model's actual class labels so a forest serves the same values it
+        // predicts natively (labels like [1, 2, 3] or [2, 5, 9]).
+        crate::onnx::append_label_map(&mut proto, &labels)?;
+        Ok(proto)
     }
 }
 
