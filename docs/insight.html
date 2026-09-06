@@ -82,6 +82,7 @@ m.fit(&amp;x)?;
 <span class="k">let</span> scores = m.score(&amp;x)?;          <span class="c">// higher = more anomalous</span>
 <span class="k">let</span> flags = m.is_outlier(&amp;x, <span class="k">3.0</span>)?;</pre>
       <p class="run">cargo run --example trust --features "calibration anomaly"</p>
+      <div class="callout"><b>On the GPU.</b> Both scorers rest on heavy linear algebra — a distance matrix for <code class="inl">KnnScore</code>, the covariance <code class="inl">Xcᵀ·Xc</code> for <code class="inl">Mahalanobis</code>. With <code class="inl">gpu-compute</code>, <code class="inl">KnnScore::new(k).on_gpu()</code> and <code class="inl">Mahalanobis::new().on_gpu()</code> run those on the GPU (via portable <code class="inl">gpu::pairwise_sqdist</code> / <code class="inl">gpu::gemm</code> primitives over Vulkan/Metal/DX12), matching the CPU path within tolerance and falling back to CPU when no GPU is present. Worth it for large data; CPU stays the default.</div>
     </div>
   </section>
 

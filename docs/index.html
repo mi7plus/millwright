@@ -78,8 +78,8 @@ pipe.fit(&amp;train)?;
         </a>
         <a class="card" href="deploy.html">
           <div class="n">04 · deploy</div>
-          <h3>ONNX, serving, registry, drift, AutoML</h3>
-          <p>Export to one ONNX artifact, serve a drift-monitored endpoint, version models, and let AutoML search for the best deployable pipeline.</p>
+          <h3>ONNX, GPU, serving, registry, AutoML</h3>
+          <p>Export to one ONNX artifact, run it on the GPU or serve a drift-monitored endpoint, version models, and let AutoML search for the best deployable pipeline.</p>
         </a>
         <a class="card" href="python.html">
           <div class="n">05 · python</div>
@@ -125,6 +125,8 @@ millwright = { version = <span class="s">"2.2.3"</span>, features = [<span class
             <tr><td><span class="feat">anomaly</span></td><td>Mahalanobis · KnnScore outlier detectors</td></tr>
             <tr><td><span class="feat">viz</span></td><td>ROC / residual SVG figures</td></tr>
             <tr><td><span class="feat">onnx</span></td><td>export_onnx · InferenceModel (tract)</td></tr>
+            <tr><td><span class="feat">gpu-inference</span></td><td>InferenceModel::load_on(Device) — GPU ONNX via onnxruntime (any OS, CPU fallback) · GPU-runnable forests · multi-GPU</td></tr>
+            <tr><td><span class="feat">gpu-compute</span></td><td>gpu::gemm · gpu::pairwise_sqdist · KnnScore/Mahalanobis on_gpu() (wgpu)</td></tr>
             <tr><td><span class="feat">registry</span></td><td>versioned model Registry</td></tr>
             <tr><td><span class="feat">monitor</span></td><td>DriftMonitor (PSI)</td></tr>
             <tr><td><span class="feat">serve</span></td><td>Server — POST /predict, GET /metrics</td></tr>

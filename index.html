@@ -305,7 +305,7 @@
         <div class="layer">
           <div class="lname">Backend adapters<span class="k">#[cfg(feature)]</span></div>
           <div class="chips">
-            <span class="chip own">smartcore ⇄</span><span class="chip own">linfa ⇄</span><span class="chip own">chronos-ts ⇄</span><span class="chip own">incremental-rs ⇄</span><span class="chip">tract (onnx infer)</span>
+            <span class="chip own">smartcore ⇄</span><span class="chip own">linfa ⇄</span><span class="chip own">chronos-ts ⇄</span><span class="chip own">incremental-rs ⇄</span><span class="chip">tract (onnx infer)</span><span class="chip">ort (gpu infer)</span><span class="chip">wgpu (gpu compute)</span>
           </div>
         </div>
         <div class="layer">
@@ -689,6 +689,8 @@ reg.rollback(<span class="s">"churn"</span>, <span class="s">"prod"</span>)?;</p
             <tr><td><span class="feat">anomaly</span></td><td><span class="cr">core</span></td><td>outlier detection: Mahalanobis · kNN score (Isolation Forest as the ecosystem matures)</td></tr>
             <tr><td><span class="feat">viz</span></td><td><span class="cr">plotters-statistical</span></td><td>ROC · calibration · residual · learning-curve charts</td></tr>
             <tr><td><span class="feat">onnx</span></td><td><span class="cr">onnx-export-rs · tract</span></td><td>export trained pipelines · load &amp; run ONNX</td></tr>
+            <tr><td><span class="feat">gpu-inference</span></td><td><span class="cr">ort · onnxruntime</span></td><td>run ONNX on the GPU (DirectML · CoreML · CUDA), CPU fallback · GPU-runnable forests · multi-GPU</td></tr>
+            <tr><td><span class="feat">gpu-compute</span></td><td><span class="cr">wgpu</span></td><td>portable GPU GEMM &amp; distance primitives · <code class="inl">on_gpu()</code> KnnScore / Mahalanobis</td></tr>
             <tr><td><span class="feat">serve</span></td><td><span class="cr">axum · tokio</span></td><td>HTTP inference server + input validation</td></tr>
             <tr><td><span class="feat">monitor</span></td><td><span class="cr">driftwatch · tracing</span></td><td>PSI / data &amp; prediction drift · metrics endpoint</td></tr>
             <tr><td><span class="feat">registry</span></td><td><span class="cr">core · serde</span></td><td>versioned model registry: pipeline + ONNX + metadata + reference distribution</td></tr>
@@ -721,8 +723,8 @@ reg.rollback(<span class="s">"churn"</span>, <span class="s">"prod"</span>)?;</p
         <div>
           <h3 style="color:var(--steel)">Non-goals &amp; risks</h3>
           <ul class="clean warn">
-            <li><b>Not a numerics kernel.</b> No new linear algebra — it orchestrates proven implementations.</li>
-            <li><b>Not GPU/distributed in v1.</b> CPU + <span class="mono">rayon</span> parallelism; scale-out is a later story, flagged not faked.</li>
+            <li><b>Not a CPU numerics kernel.</b> No new CPU linear algebra — it orchestrates proven implementations; the small GPU GEMM / distance kernels behind <span class="mono">gpu-compute</span> are the one deliberate exception.</li>
+            <li><b>GPU is opt-in; distributed is later.</b> CPU + <span class="mono">rayon</span> stays the default and the fallback; GPU <em>inference</em> (onnxruntime, any OS) and GPU <em>compute</em> (wgpu, over Vulkan/Metal/DX12) ship behind features. Multi-node scale-out is still a later story, flagged not faked.</li>
             <li><b>Dependency maturity.</b> Ten young single-author crates underneath — mitigated by exact-version pins and a feature-matrix CI, but it is the real risk to own.</li>
             <li><b>Conversion cost.</b> The two-<span class="mono">ndarray</span> bridge copies; measured, with zero-copy fast paths where layout allows.</li>
           </ul>
