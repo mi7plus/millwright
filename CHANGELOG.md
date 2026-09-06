@@ -6,6 +6,8 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-06
+
 ### Added
 - **GPU-accelerated classic-ML compute behind the new `gpu-compute` feature.** A
   portable `gpu` module (via `wgpu`, over Vulkan / Metal / DX12) with two
