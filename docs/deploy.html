@@ -48,6 +48,27 @@ pipe.export_onnx(<span class="s">"pipeline.onnx"</span>)?;                 <span
     </div>
   </section>
 
+  <!-- GPU INFERENCE -->
+  <section id="gpu">
+    <div class="wrap">
+      <div class="head col">
+        <div class="eyebrow">GPU inference</div>
+        <h2>The same artifact, on the GPU.</h2>
+        <p class="muted">With <code class="inl">gpu-inference</code>, <code class="inl">InferenceModel::load_on</code> runs an exported ONNX model through onnxruntime, so it can use a GPU. <code class="inl">Device::Auto</code> picks the OS-native provider — DirectML on Windows, CoreML on macOS, CUDA on Linux (feature <code class="inl">gpu-cuda</code>) — and falls back to CPU, so a model loads on any system; <code class="inl">Device::Gpu</code> requires a GPU (errors rather than silently degrading); <code class="inl">Device::Cpu</code> forces CPU. The onnxruntime binary is fetched at build time — no system install.</p>
+      </div>
+<pre><span class="k">let</span> model = <span class="f">InferenceModel</span>::load_on(<span class="s">"pipeline.onnx"</span>, <span class="f">Device</span>::Auto)?;
+<span class="k">let</span> preds = model.predict(&amp;probe)?;                 <span class="c">// matches the CPU path</span>
+
+<span class="c">// forests have no GPU kernel in onnxruntime — re-encode them as tensor ops</span>
+rf.export_onnx_gpu(<span class="s">"forest.onnx"</span>)?;                  <span class="c">// Gather / MatMul / … — GPU-runnable</span>
+
+<span class="c">// split a batch across several GPUs for throughput</span>
+<span class="k">let</span> pooled = <span class="f">InferenceModel</span>::load_multi(<span class="s">"pipeline.onnx"</span>, &amp;[<span class="k">0</span>, <span class="k">1</span>])?;</pre>
+      <p class="tiny">GPU acceleration lands on linear / large-batch graphs; onnxruntime places each op per node, so GPU-supported ops use the GPU whenever one is active. Tree ensembles have no GPU kernel and otherwise stay on CPU — <code class="inl">export_onnx_gpu</code> re-encodes a forest as plain tensor operations so it runs on the GPU too. Predictions match the CPU path within tolerance.</p>
+      <p class="run">cargo run --example gpu --features gpu-inference</p>
+    </div>
+  </section>
+
   <!-- OPERATE -->
   <section id="operate">
     <div class="wrap">
