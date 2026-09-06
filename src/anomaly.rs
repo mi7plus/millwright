@@ -42,12 +42,28 @@ pub struct Mahalanobis {
     mean: Vec<f64>,
     inv_cov: Vec<Vec<f64>>,
     fitted: bool,
+    // Compute the covariance (a Xcᵀ·Xc matrix multiply) on the GPU when set and a
+    // GPU is available. Off by default; enabled via `on_gpu`.
+    #[cfg(feature = "gpu-compute")]
+    use_gpu: bool,
 }
 
 impl Mahalanobis {
     /// A new, unfitted scorer.
     pub fn new() -> Self {
         Mahalanobis::default()
+    }
+
+    /// Compute the fitted covariance on the GPU (feature `gpu-compute`).
+    ///
+    /// The covariance is `Xcᵀ·Xc` over the centered data — a dense matrix
+    /// multiply — so it runs through [`crate::gpu::gemm`]; it falls back to CPU
+    /// when no GPU is available. Results match the CPU path within `f32`
+    /// tolerance. Worth it for many rows; the default (CPU) is best otherwise.
+    #[cfg(feature = "gpu-compute")]
+    pub fn on_gpu(mut self) -> Self {
+        self.use_gpu = true;
+        self
     }
 
     /// Learn the centre and (ridge-regularized) inverse covariance.
@@ -59,7 +75,24 @@ impl Mahalanobis {
         let mean: Vec<f64> = (0..p)
             .map(|c| frame.column(c).iter().sum::<f64>() / n as f64)
             .collect();
-        // population covariance with a small ridge for invertibility
+        let cov = self.covariance(frame, &mean, n, p)?;
+        self.inv_cov = invert(cov).ok_or_else(|| Error::Backend("singular covariance".into()))?;
+        self.mean = mean;
+        self.fitted = true;
+        Ok(())
+    }
+
+    /// The ridge-regularized population covariance, on GPU when enabled.
+    fn covariance(&self, frame: &Frame, mean: &[f64], n: usize, p: usize) -> Result<Vec<Vec<f64>>> {
+        #[cfg(feature = "gpu-compute")]
+        if self.use_gpu && crate::gpu::is_available() {
+            return Self::covariance_gpu(frame, mean, n, p);
+        }
+        Ok(Self::covariance_cpu(frame, mean, n, p))
+    }
+
+    /// Covariance by the direct O(n·p²) accumulation (the default path).
+    fn covariance_cpu(frame: &Frame, mean: &[f64], n: usize, p: usize) -> Vec<Vec<f64>> {
         let mut cov = vec![vec![0.0; p]; p];
         for r in 0..n {
             for i in 0..p {
@@ -77,10 +110,34 @@ impl Mahalanobis {
                 }
             }
         }
-        self.inv_cov = invert(cov).ok_or_else(|| Error::Backend("singular covariance".into()))?;
-        self.mean = mean;
-        self.fitted = true;
-        Ok(())
+        cov
+    }
+
+    /// Covariance as the GPU matrix product `Xcᵀ · Xc` over centered data.
+    #[cfg(feature = "gpu-compute")]
+    fn covariance_gpu(frame: &Frame, mean: &[f64], n: usize, p: usize) -> Result<Vec<Vec<f64>>> {
+        // Centered data as Xc (n×p) and its transpose Xcᵀ (p×n), both f32.
+        let mut xc = vec![0.0f32; n * p];
+        let mut xct = vec![0.0f32; p * n];
+        for r in 0..n {
+            for i in 0..p {
+                let v = (frame.get(r, i) - mean[i]) as f32;
+                xc[r * p + i] = v;
+                xct[i * n + r] = v;
+            }
+        }
+        let prod = crate::gpu::gemm(&xct, p, n, &xc, p)?; // p×p = Xcᵀ·Xc
+        let mut cov = vec![vec![0.0f64; p]; p];
+        for i in 0..p {
+            for j in 0..p {
+                let mut v = prod[i * p + j] as f64 / n as f64;
+                if i == j {
+                    v += 1e-6;
+                }
+                cov[i][j] = v;
+            }
+        }
+        Ok(cov)
     }
 
     /// The Mahalanobis distance of each row.
@@ -128,6 +185,9 @@ impl Mahalanobis {
 pub struct KnnScore {
     k: usize,
     train: Vec<Vec<f64>>,
+    // Compute the query×train distance matrix on the GPU when set and available.
+    #[cfg(feature = "gpu-compute")]
+    use_gpu: bool,
 }
 
 impl KnnScore {
@@ -136,7 +196,19 @@ impl KnnScore {
         KnnScore {
             k: k.max(1),
             train: Vec::new(),
+            #[cfg(feature = "gpu-compute")]
+            use_gpu: false,
         }
+    }
+
+    /// Compute the query×train distance matrix on the GPU (feature
+    /// `gpu-compute`), via [`crate::gpu::pairwise_sqdist`], falling back to CPU
+    /// when no GPU is available. Results match the CPU path within `f32`
+    /// tolerance. Worth it for large training sets / batches.
+    #[cfg(feature = "gpu-compute")]
+    pub fn on_gpu(mut self) -> Self {
+        self.use_gpu = true;
+        self
     }
 
     /// Store the training points.
@@ -161,6 +233,10 @@ impl KnnScore {
             )));
         }
         let k = self.k.min(self.train.len());
+        #[cfg(feature = "gpu-compute")]
+        if self.use_gpu && crate::gpu::is_available() {
+            return self.score_gpu(frame, k, p);
+        }
         let mut out = Vec::with_capacity(frame.nrows());
         for r in 0..frame.nrows() {
             let row = frame.row(r);
@@ -174,6 +250,33 @@ impl KnnScore {
                         .sum::<f64>()
                         .sqrt()
                 })
+                .collect();
+            dists.sort_by(f64::total_cmp);
+            out.push(dists[k - 1]);
+        }
+        Ok(out)
+    }
+
+    /// The k-th nearest-neighbour distance via a GPU distance matrix.
+    #[cfg(feature = "gpu-compute")]
+    fn score_gpu(&self, frame: &Frame, k: usize, p: usize) -> Result<Vec<f64>> {
+        let n = frame.nrows();
+        let m = self.train.len();
+        // Query rows (n×p) and training rows (m×p), both f32.
+        let x: Vec<f32> = (0..n)
+            .flat_map(|r| frame.row(r).iter().map(|v| *v as f32).collect::<Vec<_>>())
+            .collect();
+        let y: Vec<f32> = self
+            .train
+            .iter()
+            .flat_map(|t| t.iter().map(|v| *v as f32).collect::<Vec<_>>())
+            .collect();
+        let sq = crate::gpu::pairwise_sqdist(&x, n, &y, m, p)?; // n×m squared distances
+        let mut out = Vec::with_capacity(n);
+        for i in 0..n {
+            let mut dists: Vec<f64> = sq[i * m..(i + 1) * m]
+                .iter()
+                .map(|v| (*v as f64).max(0.0).sqrt())
                 .collect();
             dists.sort_by(f64::total_cmp);
             out.push(dists[k - 1]);

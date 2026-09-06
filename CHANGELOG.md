@@ -7,6 +7,17 @@ All notable changes to Millwright are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **GPU-accelerated classic-ML compute behind the new `gpu-compute` feature.** A
+  portable `gpu` module (via `wgpu`, over Vulkan / Metal / DX12) with two
+  primitives — `gpu::gemm` (dense matrix multiply) and `gpu::pairwise_sqdist`
+  (the squared-distance matrix) — that run on any system's GPU and are testable
+  in CI via a software adapter. Both run in `f32`, matching the `f64` CPU path
+  within tolerance. Two estimators gained opt-in GPU paths with CPU fallback:
+  `KnnScore::on_gpu()` (distance matrix) and `Mahalanobis::on_gpu()` (the
+  covariance `Xcᵀ·Xc`). CPU stays the default everywhere. Parity tests assert
+  GPU == CPU on real hardware; a `gpu_compute` benchmark shows the crossover
+  (GPU wins as problem size grows, overhead-bound when small). Not in `full` —
+  it pulls a large GPU stack that not every build wants.
 - **GPU-accelerated ONNX inference behind the new `gpu-inference` feature.**
   `InferenceModel::load_on(path, Device)` runs an exported ONNX model through
   onnxruntime (the `ort` crate). `Device::Auto` selects the available GPU

@@ -82,6 +82,15 @@ ndarray015 = { package = "ndarray", version = "0.15", optional = true }
 # The per-OS GPU execution providers are enabled in the target tables below.
 ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "ndarray", "download-binaries", "tls-rustls"] }
 
+# GPU-accelerated classic-ML compute (GEMM, pairwise distances) via wgpu — a
+# portable GPU compute API over Vulkan / Metal / DX12, so it runs on any system
+# and is testable in CI (software adapter). Opt-in via `gpu-compute`; CPU stays
+# the default and the always-available fallback. `pollster` blocks on wgpu's
+# async device calls; `bytemuck` casts f32 buffers to bytes for upload.
+wgpu = { version = "26", optional = true }
+pollster = { version = "0.4", optional = true }
+bytemuck = { version = "1", optional = true }
+
 # Per-OS GPU execution providers, merged into `ort` above by target. DirectML
 # (Windows) and CoreML (macOS) load with no extra runtime — the onnxruntime
 # binary works even with no GPU present, falling back to CPU — so they are
@@ -115,6 +124,11 @@ required-features = ["smartcore-backend"]
 name = "gpu_inference"
 harness = false
 required-features = ["gpu-inference"]
+
+[[bench]]
+name = "gpu_compute"
+harness = false
+required-features = ["gpu-compute"]
 
 [features]
 # Phase 0 · THE SPINE — the smartcore backend is the first (and default) engine.
@@ -221,6 +235,13 @@ gpu-inference = ["dep:ort", "onnx"]
 # load without it — unlike the always-safe DirectML / CoreML / CPU providers.
 gpu-cuda = ["gpu-inference", "ort/cuda"]
 
+# GPU-accelerated classic-ML compute (GEMM, pairwise distances) via wgpu, over
+# Vulkan / Metal / DX12. Adds a `gpu` module of primitives and opt-in GPU paths
+# on the estimators that use them (KnnScore distances, LogisticRegression
+# training). Portable and testable on any GPU; CPU stays default. Not in `full` —
+# it pulls a large GPU stack that not every build wants.
+gpu-compute = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+
 # Every Rust-facing feature (everything except the Python extension).
 full = [
     "smartcore-backend",
@@ -290,6 +311,10 @@ required-features = ["smartcore-backend", "onnx", "registry", "monitor", "serve"
 [[example]]
 name = "gpu"
 required-features = ["gpu-inference"]
+
+[[example]]
+name = "gpu_compute"
+required-features = ["gpu-compute", "anomaly"]
 
 [[example]]
 name = "specialized"
