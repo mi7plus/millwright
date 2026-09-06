@@ -177,18 +177,57 @@ impl PyNaiveBayes {
 
 /// A pre-trained ONNX model (e.g. exported from scikit-learn or PyTorch), used
 /// as a pipeline's frozen estimator behind Millwright's preprocessing steps.
+///
+/// `device` selects where it runs: `"auto"` uses the best available accelerator
+/// (GPU with a CPU fallback), `"gpu"` requires a GPU (errors if none), `"cpu"`
+/// forces CPU. Anything other than `"cpu"` requires building Millwright with the
+/// `gpu-inference` feature.
 #[cfg(feature = "onnx")]
 #[pyclass(name = "OnnxModel", from_py_object)]
 #[derive(Clone)]
 pub(super) struct PyOnnxModel {
     path: String,
+    device: Option<String>,
 }
 #[cfg(feature = "onnx")]
 #[pymethods]
 impl PyOnnxModel {
     #[new]
-    fn new(path: String) -> Self {
-        Self { path }
+    #[pyo3(signature = (path, device=None))]
+    fn new(path: String, device: Option<String>) -> Self {
+        Self { path, device }
+    }
+}
+
+/// Load a [`PyOnnxModel`] into an [`InferenceModel`], honoring its `device`.
+///
+/// With `gpu-inference`, `device` picks the onnxruntime execution provider;
+/// without it, only the default in-process CPU path is available and any
+/// non-CPU `device` is a clear error rather than a silent downgrade.
+#[cfg(feature = "onnx")]
+fn load_onnx_model(m: &PyOnnxModel) -> PyResult<crate::onnx::InferenceModel> {
+    #[cfg(feature = "gpu-inference")]
+    {
+        let device = match m.device.as_deref() {
+            None | Some("auto") => crate::onnx::Device::Auto,
+            Some("gpu") => crate::onnx::Device::Gpu,
+            Some("cpu") => crate::onnx::Device::Cpu,
+            Some(other) => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown device '{other}' (expected 'auto', 'gpu', or 'cpu')"
+                )))
+            }
+        };
+        crate::onnx::InferenceModel::load_on(&m.path, device).map_err(to_py_err)
+    }
+    #[cfg(not(feature = "gpu-inference"))]
+    {
+        if matches!(m.device.as_deref(), Some(other) if other != "cpu") {
+            return Err(PyValueError::new_err(
+                "device selection requires building Millwright with the 'gpu-inference' feature",
+            ));
+        }
+        crate::onnx::InferenceModel::load(&m.path).map_err(to_py_err)
     }
 }
 
@@ -261,7 +300,7 @@ pub(super) fn set_estimator(
     }
     #[cfg(feature = "onnx")]
     if let Ok(m) = obj.extract::<PyOnnxModel>() {
-        let model = crate::onnx::InferenceModel::load(&m.path).map_err(to_py_err)?;
+        let model = load_onnx_model(&m)?;
         return Ok(pipe.estimator(name, model));
     }
     Err(PyValueError::new_err(

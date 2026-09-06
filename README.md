@@ -98,6 +98,18 @@ contract, so training, evaluation, export, serving, and monitoring compose.
   loads and runs any ONNX file. tract executes the linear/affine/pipeline graphs
   (a full round-trip); tree-ensemble ONNX-ML artifacts run in external runtimes
   like onnxruntime.
+- **GPU inference** (via [`ort`], feature `gpu-inference`):
+  `InferenceModel::load_on(path, Device::Auto)` runs an ONNX model through
+  onnxruntime on the available GPU provider — DirectML on Windows, CoreML on
+  macOS (both automatic), or CUDA (opt-in feature `gpu-cuda`) — falling back to
+  CPU, so it runs on any system. `Device::Gpu` instead *requires* a GPU and
+  errors rather than silently degrading to CPU. The onnxruntime binary is
+  fetched at build time; no system install. onnxruntime places each op on the
+  GPU or CPU per node, so GPU-supported ops (matmul / linear, preprocessing) use
+  the GPU whenever one is active; tree-ensemble ops have no GPU kernel and stay
+  on CPU — unless you export with `to_onnx_gpu`, which re-encodes a forest as
+  tensor ops (`Gather`/`MatMul`/…) so it runs on the GPU too. `load_multi(path,
+  &[0, 1, …])` shards a batch across several GPUs for throughput.
 - **Python bindings** (`src/python.rs`, via [`pyo3`], feature `python`): a
   `Pipeline` class over the same Rust core, shipped on [PyPI](https://pypi.org/project/millwright/)
   as an abi3 wheel.
@@ -141,6 +153,7 @@ Server::from_onnx(reg.onnx_path("churn", "prod")?)?
 
 [`onnx-export-rs`]: https://crates.io/crates/onnx-export-rs
 [`tract`]: https://crates.io/crates/tract-onnx
+[`ort`]: https://crates.io/crates/ort
 [`pyo3`]: https://pyo3.rs/
 ### Phase 6 · specialized — *the long tail of real workloads*
 
@@ -293,6 +306,10 @@ cargo run --example insight --features "smartcore-backend diagnostics explain vi
 
 ```bash
 cargo run --example portability --features "smartcore-backend onnx"
+```
+
+```bash
+cargo run --example gpu --features gpu-inference
 ```
 
 ```bash

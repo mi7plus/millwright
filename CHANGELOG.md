@@ -6,6 +6,36 @@ All notable changes to Millwright are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **GPU-accelerated ONNX inference behind the new `gpu-inference` feature.**
+  `InferenceModel::load_on(path, Device)` runs an exported ONNX model through
+  onnxruntime (the `ort` crate). `Device::Auto` selects the available GPU
+  execution provider — DirectML on Windows, CoreML on macOS (both automatic),
+  or CUDA (opt-in feature `gpu-cuda`) — and falls back to the onnxruntime CPU
+  provider on any failure, so a model loads and runs on any system.
+  `Device::Gpu` instead *requires* a GPU and errors rather than silently
+  degrading to CPU (for machines whose GPU should carry the work); `Device::Cpu`
+  forces CPU. The onnxruntime
+  binary is fetched at build time (`download-binaries`), so no system install is
+  needed. A parity test asserts the onnxruntime path matches the in-process
+  tract path within tolerance, and a `gpu_inference` benchmark compares CPU vs.
+  GPU throughput across batch sizes. The GPU win lands on linear / large-batch
+  graphs; ONNX-ML tree-ensemble ops (an exported `RandomForest`) run on the
+  onnxruntime CPU provider regardless of device. Not part of `full` — it links a
+  native onnxruntime binary that not every build wants.
+- **GPU-runnable forest export via `ExportOnnx::to_onnx_gpu` / `export_onnx_gpu`.**
+  onnxruntime has no GPU kernel for the ONNX-ML tree op, so a normally-exported
+  forest runs on CPU even on a GPU. These re-encode each tree as plain tensor
+  operations (`Gather` / `LessOrEqual` / `MatMul` / `Equal`) — a graph the GPU
+  execution providers *can* run — producing predictions identical to the tree
+  op (proven on CPU/tract independent of onnxruntime). Best for wide/shallow
+  forests and large batches; the encoding grows with tree depth, which is why it
+  is a separate, opt-in export. Non-tree models are returned unchanged.
+- **Multi-GPU data-parallel inference via `InferenceModel::load_multi`.** Builds
+  one onnxruntime session per GPU (pinned by CUDA / DirectML device id) and
+  splits each batch's rows across them, running concurrently — throughput scales
+  with the number of GPUs. Predictions match single-device.
+
 ### Fixed
 - **Exported `RandomForest` ONNX now returns class labels, not the argmax
   index.** The tree-ensemble export ended at `ArgMax → 0..k`, silently ignoring
