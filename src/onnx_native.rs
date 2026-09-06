@@ -20,19 +20,21 @@ use crate::frame::Frame;
 /// This uses one small matrix set per tree, so it stays modest for wide/shallow
 /// forests but grows with tree depth; it is opt-in for exactly that reason.
 pub(super) fn tensorize_tree_ensembles(proto: &mut ModelProto) -> Result<()> {
-    use onnx_export_rs::graph_builder::make_node;
+    use onnx_export_rs::graph_builder::{make_node, make_value_info, Dimension};
 
     let graph = proto
         .graph
         .as_mut()
         .ok_or_else(|| Error::Backend("tensorize: exported model has no graph".into()))?;
 
+    let mut tensorized = false;
     // Rewrite each tree-ensemble node in place (there is normally one).
     while let Some(pos) = graph
         .node
         .iter()
         .position(|n| n.op_type == "TreeEnsembleRegressor")
     {
+        tensorized = true;
         let node = graph.node[pos].clone();
         let input = node
             .input
@@ -91,6 +93,24 @@ pub(super) fn tensorize_tree_ensembles(proto: &mut ModelProto) -> Result<()> {
         }
         graph.node.splice(pos..=pos, nodes);
         graph.initializer.extend(inits);
+    }
+
+    // The encoding gathers features by index, so the exact feature width no
+    // longer needs to be fixed in the graph — and the tree export can
+    // under-declare it (it uses only the width the splits reference, which is
+    // smaller when a trailing feature is never split on). Relax the input to
+    // dynamic dims so a strict runtime (tract) accepts the real batch and width.
+    if tensorized {
+        if let Some(vi) = graph.input.first_mut() {
+            let name = vi.name.clone();
+            *vi = make_value_info(
+                &name,
+                &[
+                    Dimension::Symbolic("batch".into()),
+                    Dimension::Symbolic("features".into()),
+                ],
+            );
+        }
     }
     Ok(())
 }

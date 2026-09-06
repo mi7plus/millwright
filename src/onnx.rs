@@ -9,8 +9,8 @@
 //! interpreter. So the exported artifact always round-trips back into Rust — a
 //! `RandomForest` included — and stays portable to every other ONNX runtime.
 //!
-//! With the `gpu-inference` feature, [`InferenceModel::load_on`] runs a model
-//! through onnxruntime instead, so it can use a GPU: [`Device::Auto`] picks the
+//! With the `gpu-inference` feature, `InferenceModel::load_on` runs a model
+//! through onnxruntime instead, so it can use a GPU: `Device::Auto` picks the
 //! available execution provider (DirectML on Windows, CoreML on macOS, or CUDA
 //! with the `gpu-cuda` feature) and falls back to CPU, so it runs on any system.
 //! GPU acceleration helps linear / large-batch graphs; tree-ensemble ops run on
@@ -48,10 +48,11 @@ pub trait ExportOnnx {
 
     /// Build the ONNX graph, but re-encode any tree-ensemble op as plain tensor
     /// operations (`Gather` / `LessOrEqual` / `MatMul` / …) so it can run on a
-    /// GPU execution provider via [`InferenceModel::load_on`] — onnxruntime has
-    /// no GPU kernel for the ONNX-ML tree op, so a normally-exported forest would
-    /// fall back to CPU. Non-tree graphs (e.g. linear models) are returned
-    /// unchanged. Predictions are identical to [`to_onnx`](Self::to_onnx).
+    /// GPU execution provider via `InferenceModel::load_on` (feature
+    /// `gpu-inference`) — onnxruntime has no GPU kernel for the ONNX-ML tree op,
+    /// so a normally-exported forest would fall back to CPU. Non-tree graphs
+    /// (e.g. linear models) are returned unchanged. Predictions are identical to
+    /// [`to_onnx`](Self::to_onnx).
     ///
     /// The encoding uses a small matrix set per tree, so it is well-suited to
     /// wide / shallow forests and large batches; the graph grows with tree

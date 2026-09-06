@@ -187,3 +187,86 @@ fn forest_onnx_maps_class_labels() {
         let _ = std::fs::remove_file(&path);
     }
 }
+
+// A 3-class dataset with non-contiguous labels `[2, 5, 9]`.
+fn tensorize_data(n: usize, p: usize) -> Dataset {
+    let mut rows = Vec::with_capacity(n);
+    let mut y = Vec::with_capacity(n);
+    for i in 0..n {
+        let cls = (i % 3) as f64;
+        rows.push(
+            (0..p)
+                .map(|j| ((i * p + j) as f64).sin() + cls * 2.0)
+                .collect(),
+        );
+        y.push([2.0, 5.0, 9.0][cls as usize]);
+    }
+    let cols = (0..p).map(|j| format!("f{j}")).collect();
+    Dataset::new(Frame::from_rows(rows, cols).unwrap(), y).unwrap()
+}
+
+// `export_onnx_gpu` re-encodes a forest as tensor ops (Gather/LessOrEqual/MatMul/
+// Equal), a graph with no ONNX-ML op, so it round-trips through tract on CPU and
+// must predict exactly the same class labels as the native forest. This covers
+// the tensorization independently of the `gpu-inference` runtime.
+#[test]
+fn tensorized_forest_matches_native_via_tract() {
+    let ds = tensorize_data(180, 5);
+    let mut rf = RandomForest::new().n_trees(10).max_depth(4);
+    rf.fit(&ds).unwrap();
+    let native = rf.predict(ds.features()).unwrap();
+
+    let path = std::env::temp_dir().join("mw_tensorized_rf.onnx");
+    rf.export_onnx_gpu(&path).unwrap();
+    let via_tensor = InferenceModel::load(&path)
+        .unwrap()
+        .predict(ds.features())
+        .unwrap();
+    assert_eq!(native, via_tensor);
+    assert!(native.iter().all(|v| [2.0, 5.0, 9.0].contains(v)));
+    let _ = std::fs::remove_file(&path);
+}
+
+// A single-tree forest exercises the one-tree (`Identity`) path of the encoding.
+#[test]
+fn tensorized_single_tree_forest_matches_native() {
+    let ds = tensorize_data(120, 4);
+    let mut rf = RandomForest::new().n_trees(1).max_depth(4);
+    rf.fit(&ds).unwrap();
+    let native = rf.predict(ds.features()).unwrap();
+
+    let path = std::env::temp_dir().join("mw_tensorized_rf_single.onnx");
+    rf.export_onnx_gpu(&path).unwrap();
+    let via_tensor = InferenceModel::load(&path)
+        .unwrap()
+        .predict(ds.features())
+        .unwrap();
+    assert_eq!(native, via_tensor);
+    let _ = std::fs::remove_file(&path);
+}
+
+// A non-tree model has no tree op to re-encode, so the GPU export equals the
+// normal one.
+#[test]
+fn tensorized_export_is_noop_for_linear() {
+    let ds = tensorize_data(60, 4);
+    let mut model = LinearRegression::new();
+    model.fit(&ds).unwrap();
+
+    let plain = std::env::temp_dir().join("mw_lin_plain.onnx");
+    let gpu = std::env::temp_dir().join("mw_lin_gpu.onnx");
+    model.export_onnx(&plain).unwrap();
+    model.export_onnx_gpu(&gpu).unwrap();
+
+    let a = InferenceModel::load(&plain)
+        .unwrap()
+        .predict(ds.features())
+        .unwrap();
+    let b = InferenceModel::load(&gpu)
+        .unwrap()
+        .predict(ds.features())
+        .unwrap();
+    assert_eq!(a, b);
+    let _ = std::fs::remove_file(&plain);
+    let _ = std::fs::remove_file(&gpu);
+}
