@@ -69,7 +69,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo clippy --locked --all-targets ${{ matrix.features }}
 
   docs:
@@ -80,7 +80,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       # `full` is every Rust-facing feature (python is a cdylib, doc'd separately
       # by maturin/pyo3), so this exercises the whole documented surface.
       - run: cargo doc --locked --no-deps --features full
@@ -126,7 +126,7 @@ jobs:
       - name: install the official ONNX checker
         if: matrix.name == 'full'
         run: python -m pip install --requirement requirements/onnx-check.txt
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: ${{ matrix.name }}
       - run: cargo test --locked ${{ matrix.features }}
@@ -149,7 +149,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo test --locked
 
   msrv:
@@ -160,7 +160,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           toolchain: "1.95"
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo check --locked --all-targets --features full
 
   supply-chain:
@@ -189,7 +189,7 @@ jobs:
         with:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@d630c3ba8c9bb0648bcefda869fb0d9b98c611d9 # cargo-llvm-cov
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: measure full-feature Rust coverage
         run: cargo llvm-cov --locked --features full --workspace --lcov --output-path lcov.info
       - name: enforce coverage floor
@@ -214,7 +214,7 @@ jobs:
         with:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@d630c3ba8c9bb0648bcefda869fb0d9b98c611d9 # cargo-llvm-cov
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: branch-coverage
       - name: measure decision coverage
@@ -247,7 +247,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: run every example
         run: |
           for ex in spine explore trust workflow backends insight portability operations specialized automl; do
@@ -283,7 +283,7 @@ jobs:
           # pytest 9 contains the tmpdir security fix and requires Python 3.10+.
           # The separate ABI matrix still smoke-tests the wheel on Python 3.9.
           python-version: "3.10"
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - uses: taiki-e/install-action@d630c3ba8c9bb0648bcefda869fb0d9b98c611d9 # cargo-llvm-cov
       # The `python` feature can't be linked by `cargo test` (pyo3's
       # extension-module defers libpython), so it is built the way it ships:
