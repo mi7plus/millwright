@@ -87,8 +87,8 @@ ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, fea
 # and is testable in CI (software adapter). Opt-in via `gpu-compute`; CPU stays
 # the default and the always-available fallback. `pollster` blocks on wgpu's
 # async device calls; `bytemuck` casts f32 buffers to bytes for upload.
-wgpu = { version = "26", optional = true }
-pollster = { version = "0.4", optional = true }
+wgpu = { version = "30", optional = true }
+pollster = { version = "1.0", optional = true }
 bytemuck = { version = "1", optional = true }
 
 # Per-OS GPU execution providers, merged into `ort` above by target. DirectML
@@ -113,7 +113,7 @@ proptest = "1"
 tempfile = "3"
 # Serialize GPU tests so parallel test threads don't create many concurrent
 # onnxruntime GPU sessions (which can exhaust / TDR a single consumer GPU).
-serial_test = "3"
+serial_test = "4"
 
 [[bench]]
 name = "throughput"
