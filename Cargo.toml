@@ -54,7 +54,7 @@ incremental-rs = { version = "=0.1.2", optional = true }
 polars = { version = "=0.55.2", default-features = false, features = ["csv", "parquet", "dtype-categorical", "dtype-datetime", "temporal", "is_in"], optional = true }
 
 # --- general infrastructure: caret ranges, reproduced via Cargo.lock ---
-pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
+pyo3 = { version = "0.30", features = ["extension-module", "abi3-py39"], optional = true }
 ndarray = { version = "0.16", optional = true }
 rayon = { version = "1", optional = true }
 # Decode a saved ONNX file back into the proto, to natively evaluate ONNX-ML ops
@@ -80,7 +80,7 @@ ndarray015 = { package = "ndarray", version = "0.15", optional = true }
 # fetches a prebuilt onnxruntime for the target at build time, so a plain
 # `cargo build --features gpu-inference` works on any OS with no system install.
 # The per-OS GPU execution providers are enabled in the target tables below.
-ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "ndarray", "download-binaries", "tls-rustls"] }
+ort = { version = "=2.0.0-rc.14", optional = true, default-features = false, features = ["std", "ndarray", "download-binaries", "tls-rustls"] }
 
 # GPU-accelerated classic-ML compute (GEMM, pairwise distances) via wgpu — a
 # portable GPU compute API over Vulkan / Metal / DX12, so it runs on any system
